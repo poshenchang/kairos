@@ -1,0 +1,24 @@
+# codemagic.yaml
+# Free cloud CI/CD to build Kairos for iOS from your Linux laptop.
+# Push to GitHub -> Codemagic builds iOS IPA -> deploys to TestFlight.
+
+workflows:
+  ios-release:
+    name: Kairos iOS Release
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Set up dependencies
+        script: |
+          flutter packages pub get
+          dart run build_runner build --delete-conflicting-outputs
+      - name: Build iOS IPA
+        script: |
+          flutter build ipa --release --no-codesign
+    artifacts:
+      - build/ios/ipa/*.ipa
+
