@@ -8,6 +8,7 @@ import 'dart:math';
 import 'package:drift/drift.dart' as drift;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/services/notification_service.dart';
 import 'package:kairos/services/settings_service.dart';
@@ -18,6 +19,7 @@ const _kLastHabitSuggestionEpochKey = 'kairos_last_habit_suggestion_epoch';
 class HabitSuggestionService {
   static final HabitSuggestionService instance = HabitSuggestionService._();
   HabitSuggestionService._();
+  static const _uuid = Uuid();
 
   /// Checks for scheduled habit sessions whose end time has passed and logs them.
   /// Uses idempotent notes tags (`auto_event:<eventId>`) to prevent duplicate logs.
@@ -52,12 +54,15 @@ class HabitSuggestionService {
       if (alreadyLogged) continue;
 
       final duration = event.endTime.difference(event.startTime).inMinutes;
+      final completedTime = event.endTime.toUtc();
       await db.habitDao.logHabitCompletion(
         HabitLogsCompanion.insert(
+          syncId: drift.Value(_uuid.v4()),
           habitId: habitId,
-          completedAt: event.endTime,
+          completedAt: completedTime,
           durationMinutes: drift.Value(duration > 0 ? duration : 30),
           notes: drift.Value('auto_event:${event.id}'),
+          updatedAt: drift.Value(completedTime),
         ),
       );
 

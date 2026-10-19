@@ -208,7 +208,7 @@ void main() {
           overrides: [
             incompleteTasksStreamProvider.overrideWith((ref) => Stream.value([dummyTask])),
             activeHabitsProvider.overrideWith((ref) => Stream.value([dummyHabit])),
-            weeklyHabitCompletionsProvider.overrideWith((ref) => Future.value({10: 2})),
+            weeklyHabitCompletionsProvider.overrideWith((ref) => Stream.value({10: 2})),
             allEventsStreamProvider.overrideWith((ref) => Stream.value([dummyExam])),
             subtasksForTaskProvider.overrideWith((ref, taskId) => Stream.value([])),
           ],

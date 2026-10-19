@@ -5,6 +5,7 @@
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
@@ -43,14 +44,17 @@ class _LogHabitDialogState extends ConsumerState<LogHabitDialog> {
 
   Future<void> _logSession() async {
     final habitDao = ref.read(habitDaoProvider);
+    final now = DateTime.now().toUtc();
     await habitDao.logHabitCompletion(
       HabitLogsCompanion.insert(
+        syncId: Value(const Uuid().v4()),
         habitId: widget.habit.id,
-        completedAt: DateTime.now().toUtc(),
+        completedAt: now,
         durationMinutes: Value(_durationMinutes),
         notes: _notesController.text.isNotEmpty
             ? Value(_notesController.text.trim())
             : const Value(null),
+        updatedAt: Value(now),
       ),
     );
 

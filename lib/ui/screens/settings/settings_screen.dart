@@ -131,12 +131,25 @@ ALTER TABLE public.habits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.habit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.holidays ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Allow all on categories" ON public.categories;
 CREATE POLICY "Allow all on categories" ON public.categories FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow all on events" ON public.events;
 CREATE POLICY "Allow all on events" ON public.events FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow all on tasks" ON public.tasks;
 CREATE POLICY "Allow all on tasks" ON public.tasks FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow all on subtasks" ON public.subtasks;
 CREATE POLICY "Allow all on subtasks" ON public.subtasks FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow all on habits" ON public.habits;
 CREATE POLICY "Allow all on habits" ON public.habits FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow all on habit_logs" ON public.habit_logs;
 CREATE POLICY "Allow all on habit_logs" ON public.habit_logs FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow all on holidays" ON public.holidays;
 CREATE POLICY "Allow all on holidays" ON public.holidays FOR ALL USING (true) WITH CHECK (true);
 ''';
 

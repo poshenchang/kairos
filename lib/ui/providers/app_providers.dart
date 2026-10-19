@@ -84,26 +84,29 @@ final activeHabitsProvider = StreamProvider<List<Habit>>((ref) {
   return dao.watchActiveHabits();
 });
 
-final habitCompletionsForWeekProvider = FutureProvider.family<Map<int, int>, DateTime>((ref, weekSunday) async {
+final habitCompletionsForWeekProvider = StreamProvider.family<Map<int, int>, DateTime>((ref, weekSunday) {
   final dao = ref.watch(habitDaoProvider);
   final start = DateTime(weekSunday.year, weekSunday.month, weekSunday.day);
   final end = start.add(const Duration(days: 7));
-  return dao.getWeeklyCompletions(start, end);
+  return dao.watchWeeklyCompletions(start, end);
 });
 
-final weeklyHabitCompletionsProvider = FutureProvider<Map<int, int>>((ref) async {
+final weeklyHabitCompletionsProvider = StreamProvider<Map<int, int>>((ref) {
+  final dao = ref.watch(habitDaoProvider);
   final now = DateTime.now();
   final daysBack = now.weekday % 7; // Sunday start (Sunday = weekday 7 % 7 = 0)
   final sunday = DateTime(now.year, now.month, now.day).subtract(Duration(days: daysBack));
-  return ref.watch(habitCompletionsForWeekProvider(sunday).future);
+  final start = DateTime(sunday.year, sunday.month, sunday.day);
+  final end = start.add(const Duration(days: 7));
+  return dao.watchWeeklyCompletions(start, end);
 });
 
-final todayHabitCompletionsProvider = FutureProvider<Map<int, int>>((ref) async {
+final todayHabitCompletionsProvider = StreamProvider<Map<int, int>>((ref) {
   final dao = ref.watch(habitDaoProvider);
   final now = DateTime.now();
   final start = DateTime(now.year, now.month, now.day);
   final end = start.add(const Duration(days: 1));
-  return dao.getWeeklyCompletions(start, end);
+  return dao.watchWeeklyCompletions(start, end);
 });
 
 // ── Smart Free Time & Suggestion ─────────────────────────────────────────────

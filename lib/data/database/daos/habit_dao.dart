@@ -46,6 +46,25 @@ class HabitDao extends DatabaseAccessor<AppDatabase> with _$HabitDaoMixin {
     return result;
   }
 
+  /// Real-time reactive stream of habitId → session count completed within [weekStart, weekEnd].
+  Stream<Map<int, int>> watchWeeklyCompletions(
+      DateTime weekStart, DateTime weekEnd) {
+    return (select(habitLogs)
+          ..where(
+            (l) =>
+                l.completedAt.isBiggerOrEqualValue(weekStart) &
+                l.completedAt.isSmallerThanValue(weekEnd),
+          ))
+        .watch()
+        .map((logs) {
+      final result = <int, int>{};
+      for (final log in logs) {
+        result[log.habitId] = (result[log.habitId] ?? 0) + 1;
+      }
+      return result;
+    });
+  }
+
   Future<List<HabitLog>> getLogsForHabit(int habitId,
       {DateTime? from, DateTime? to}) {
     final query = select(habitLogs)
