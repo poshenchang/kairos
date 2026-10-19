@@ -13,17 +13,32 @@ part 'holiday_dao.g.dart';
 class HolidayDao extends DatabaseAccessor<AppDatabase> with _$HolidayDaoMixin {
   HolidayDao(super.db);
 
-  Future<List<Holiday>> getAllHolidays() =>
-      (select(holidays)
-            ..where((h) => h.isDeleted.equals(false))
-            ..orderBy([(h) => OrderingTerm.asc(h.date)]))
-          .get();
+  Future<List<Holiday>> getAllHolidays() async {
+    final list = await (select(holidays)
+          ..where((h) => h.isDeleted.equals(false))
+          ..orderBy([(h) => OrderingTerm.asc(h.date)]))
+        .get();
+    return _deduplicateInMemory(list);
+  }
 
   Stream<List<Holiday>> watchAllHolidays() =>
       (select(holidays)
             ..where((h) => h.isDeleted.equals(false))
             ..orderBy([(h) => OrderingTerm.asc(h.date)]))
-          .watch();
+          .watch()
+          .map(_deduplicateInMemory);
+
+  List<Holiday> _deduplicateInMemory(List<Holiday> list) {
+    final seen = <String>{};
+    final result = <Holiday>[];
+    for (final h in list) {
+      final key = '${h.name.trim().toLowerCase()}|${h.groupName.trim().toLowerCase()}|${h.date.year}-${h.date.month}-${h.date.day}';
+      if (seen.add(key)) {
+        result.add(h);
+      }
+    }
+    return result;
+  }
 
   Future<int> insertHoliday(HolidaysCompanion holiday) {
     final now = DateTime.now().toUtc();
@@ -36,12 +51,28 @@ class HolidayDao extends DatabaseAccessor<AppDatabase> with _$HolidayDaoMixin {
     return into(holidays).insert(companion);
   }
 
-  Future<int> deleteHoliday(int id) => (update(holidays)
-        ..where((h) => h.id.equals(id)))
-      .write(HolidaysCompanion(
+  Future<int> deleteHoliday(int id) async {
+    final target = await (select(holidays)..where((h) => h.id.equals(id))).getSingleOrNull();
+    final now = DateTime.now().toUtc();
+    if (target != null) {
+      return (update(holidays)
+            ..where((h) =>
+                (h.id.equals(id)) |
+                (h.name.equals(target.name) &
+                 h.groupName.equals(target.groupName) &
+                 h.date.equals(target.date))))
+          .write(HolidaysCompanion(
+            isDeleted: const Value(true),
+            updatedAt: Value(now),
+          ));
+    }
+    return (update(holidays)..where((h) => h.id.equals(id))).write(
+      HolidaysCompanion(
         isDeleted: const Value(true),
-        updatedAt: Value(DateTime.now().toUtc()),
-      ));
+        updatedAt: Value(now),
+      ),
+    );
+  }
 
   Future<int> deleteHolidayGroup(String groupName) => (update(holidays)
         ..where((h) => h.groupName.equals(groupName)))
@@ -97,8 +128,55 @@ class HolidayDao extends DatabaseAccessor<AppDatabase> with _$HolidayDaoMixin {
     return matching.isNotEmpty;
   }
 
-  Future<void> seedDefaultHolidays(int year) async {
-    final existing = await getAllHolidays();
+  /// Scans all holiday records (including soft-deleted), identifies duplicates by
+  /// (name, groupName, date), and marks duplicates with isDeleted = true and updatedAt = now
+  /// so Supabase sync propagates the cleanup to cloud storage and all devices.
+  Future<int> deduplicateHolidays() async {
+    final all = await (select(holidays)..orderBy([(h) => OrderingTerm.desc(h.updatedAt)])).get();
+    final groups = <String, List<Holiday>>{};
+    for (final h in all) {
+      final key = '${h.name.trim().toLowerCase()}|${h.groupName.trim().toLowerCase()}|${h.date.year}-${h.date.month}-${h.date.day}';
+      groups.putIfAbsent(key, () => []).add(h);
+    }
+
+    final duplicatesToSoftDelete = <int>[];
+    for (final list in groups.values) {
+      if (list.length <= 1) continue;
+      // List is ordered by updatedAt descending.
+      // The newest entry represents the authoritative user state.
+      final newest = list.first;
+      if (newest.isDeleted) {
+        // If the newest action was deleting the holiday, ensure ALL copies are soft-deleted.
+        for (final h in list) {
+          if (!h.isDeleted) duplicatesToSoftDelete.add(h.id);
+        }
+      } else {
+        // If the newest action was keeping it active, keep list.first active and soft-delete the rest.
+        for (int i = 1; i < list.length; i++) {
+          final dup = list[i];
+          if (!dup.isDeleted) duplicatesToSoftDelete.add(dup.id);
+        }
+      }
+    }
+
+    if (duplicatesToSoftDelete.isNotEmpty) {
+      final now = DateTime.now().toUtc();
+      await (update(holidays)..where((h) => h.id.isIn(duplicatesToSoftDelete))).write(
+        HolidaysCompanion(
+          isDeleted: const Value(true),
+          updatedAt: Value(now),
+        ),
+      );
+    }
+
+    return duplicatesToSoftDelete.length;
+  }
+
+  Future<void> seedDefaultHolidays(int year, {bool force = false}) async {
+    final allRecords = await (select(holidays)).get();
+    if (allRecords.isNotEmpty && !force) {
+      return;
+    }
 
     final usDefaults = [
       HolidaysCompanion.insert(
@@ -200,24 +278,30 @@ class HolidayDao extends DatabaseAccessor<AppDatabase> with _$HolidayDaoMixin {
       ),
     ];
 
-    if (existing.isEmpty) {
-      for (final h in [...usDefaults, ...twDefaults, ...academicDefaults]) {
-        await insertHoliday(h);
-      }
-    } else {
-      // Ensure Taiwanese holidays exist
-      final hasTw = existing.any((h) => h.groupName == 'Taiwanese Holidays');
-      if (!hasTw) {
-        for (final h in twDefaults) {
-          await insertHoliday(h);
-        }
-      }
-      // Ensure Academic breaks exist
-      final hasAcademic = existing.any((h) => h.groupName == 'Academic Breaks');
-      if (!hasAcademic) {
-        for (final h in academicDefaults) {
-          await insertHoliday(h);
-        }
+    final allDefaults = [...usDefaults, ...twDefaults, ...academicDefaults];
+    final now = DateTime.now().toUtc();
+
+    for (final def in allDefaults) {
+      final defName = def.name.value.trim().toLowerCase();
+      final defGroup = def.groupName.value.trim().toLowerCase();
+
+      final existingMatch = allRecords.cast<Holiday?>().firstWhere(
+            (r) =>
+                r!.name.trim().toLowerCase() == defName &&
+                r.groupName.trim().toLowerCase() == defGroup,
+            orElse: () => null,
+          );
+
+      if (existingMatch == null) {
+        await insertHoliday(def);
+      } else if (force && existingMatch.isDeleted) {
+        await (update(holidays)..where((h) => h.id.equals(existingMatch.id))).write(
+          HolidaysCompanion(
+            isDeleted: const Value(false),
+            isEnabled: const Value(true),
+            updatedAt: Value(now),
+          ),
+        );
       }
     }
   }

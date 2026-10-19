@@ -711,7 +711,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           icon: const Icon(Icons.auto_awesome, size: 16),
                           label: const Text('Load Standard Academic & Regional Holidays'),
                           onPressed: () async {
-                            await holidayDao.seedDefaultHolidays(DateTime.now().year);
+                            await holidayDao.seedDefaultHolidays(DateTime.now().year, force: true);
                             await ref.read(eventRepositoryProvider).autoCancelRecurringEventsForActiveHolidays();
                             ref.invalidate(selectedDateEventsProvider);
                             ref.invalidate(todayEventsProvider);
@@ -1352,6 +1352,65 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(backgroundColor: Colors.red.shade800, content: Text(err)),
                                 );
+                              }
+                            }
+                          },
+                  ),
+                if (isConnected)
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.cloud_download_outlined, size: 18, color: Colors.amberAccent),
+                    label: const Text('Reset Local & Pull Cloud', style: TextStyle(color: Colors.amberAccent)),
+                    onPressed: syncState.status == SyncStatus.syncing
+                        ? null
+                        : () async {
+                            final confirm = await showDialog<bool>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Row(
+                                  children: [
+                                    Icon(Icons.warning_amber_rounded, color: Colors.amberAccent),
+                                    SizedBox(width: 8),
+                                    Text('Reset Local Database?'),
+                                  ],
+                                ),
+                                content: const Text(
+                                  'This will wipe the local browser/device cache and pull fresh, authoritative data from Supabase.\n\n'
+                                  'Use this to eliminate stale cache, duplicated items, or corrupted timetables without leaking bad data back to the server.',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx, false),
+                                    child: const Text('Cancel'),
+                                  ),
+                                  ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.amber.shade800,
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    onPressed: () => Navigator.pop(ctx, true),
+                                    child: const Text('Wipe Local & Pull Fresh'),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (confirm == true && context.mounted) {
+                              try {
+                                await ref.read(supabaseSyncServiceProvider.notifier).resetLocalDatabaseAndPull();
+                                ref.invalidate(selectedDateEventsProvider);
+                                ref.invalidate(todayEventsProvider);
+                                ref.invalidate(allEventsStreamProvider);
+                                ref.invalidate(dashboardTasksProvider);
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Local database reset and refreshed cleanly from Supabase!')),
+                                  );
+                                }
+                              } catch (e) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(backgroundColor: Colors.red.shade800, content: Text('Reset failed: $e')),
+                                  );
+                                }
                               }
                             }
                           },

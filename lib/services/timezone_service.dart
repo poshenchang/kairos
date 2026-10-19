@@ -135,13 +135,27 @@ class TimezoneService {
 
   /// Parses a remote ISO 8601 timestamp from Supabase into a ground-truth UTC [DateTime].
   DateTime parseRemoteTimestamp(String raw) {
-    final str = raw.trim();
+    var str = raw.trim();
     if (str.isEmpty) return DateTime.now().toUtc();
 
     // If date-only format (e.g. "2026-10-19")
     if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(str)) {
       final parts = str.split('-').map(int.parse).toList();
       return DateTime.utc(parts[0], parts[1], parts[2]);
+    }
+
+    // Normalize: e.g. "2026-10-19 12:00:00+00" -> "2026-10-19T12:00:00+00:00"
+    if (str.contains(' ') && !str.contains('T')) {
+      str = str.replaceFirst(' ', 'T');
+    }
+    // Handle trailing timezone offset like +00 or +08 without minutes
+    if (RegExp(r'[+-]\d{2}$').hasMatch(str)) {
+      str = '$str:00';
+    }
+    // If no timezone offset is specified (no 'Z' and no +XX:XX), force UTC interpretation
+    // so browser/JS Dart does not parse as local time and double-shift!
+    if (!str.endsWith('Z') && !RegExp(r'[+-]\d{2}:\d{2}$').hasMatch(str)) {
+      str = '${str}Z';
     }
 
     try {

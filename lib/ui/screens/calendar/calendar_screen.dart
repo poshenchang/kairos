@@ -140,37 +140,62 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
             child: viewMode == 'all'
                 ? const AllEventsView()
                 : (viewMode == 'timetable'
-                    ? Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Expanded(
-                            child: TimetableView(
-                              anchorDate: selectedDate,
-                              onDateSelected: (day) {
-                                setState(() {
-                                  _currentWeekStart = _getSundayStart(day);
-                                });
-                                ref.read(selectedDateProvider.notifier).state = day;
-                              },
-                              onVisibleMonthChanged: (m) {
-                                if (_displayedTimetableMonth.year != m.year ||
-                                    _displayedTimetableMonth.month != m.month) {
-                                  setState(() => _displayedTimetableMonth = m);
-                                }
-                              },
-                            ),
-                          ),
-                          if (_showSidebar) ...[
-                            const VerticalDivider(width: 1, thickness: 1),
-                            SizedBox(
-                              width: 310,
-                              child: ScheduleSidebar(
-                                currentWeekStart: _currentWeekStart,
-                                onClose: () => setState(() => _showSidebar = false),
-                              ),
-                            ),
-                          ],
-                        ],
+                    ? LayoutBuilder(
+                        builder: (context, constraints) {
+                          final isCompact = constraints.maxWidth < 720;
+                          final timetable = TimetableView(
+                            anchorDate: selectedDate,
+                            onDateSelected: (day) {
+                              setState(() {
+                                _currentWeekStart = _getSundayStart(day);
+                              });
+                              ref.read(selectedDateProvider.notifier).state = day;
+                            },
+                            onVisibleMonthChanged: (m) {
+                              if (_displayedTimetableMonth.year != m.year ||
+                                  _displayedTimetableMonth.month != m.month) {
+                                setState(() => _displayedTimetableMonth = m);
+                              }
+                            },
+                          );
+
+                          if (isCompact) {
+                            return Column(
+                              children: [
+                                Expanded(child: timetable),
+                                if (_showSidebar) ...[
+                                  const Divider(height: 1, thickness: 1),
+                                  SizedBox(
+                                    height: 195,
+                                    child: ScheduleSidebar(
+                                      currentWeekStart: _currentWeekStart,
+                                      isHorizontal: true,
+                                      onClose: () => setState(() => _showSidebar = false),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            );
+                          } else {
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Expanded(child: timetable),
+                                if (_showSidebar) ...[
+                                  const VerticalDivider(width: 1, thickness: 1),
+                                  SizedBox(
+                                    width: 310,
+                                    child: ScheduleSidebar(
+                                      currentWeekStart: _currentWeekStart,
+                                      isHorizontal: false,
+                                      onClose: () => setState(() => _showSidebar = false),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            );
+                          }
+                        },
                       )
                     : Column(
                         children: [

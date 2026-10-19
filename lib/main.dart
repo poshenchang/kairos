@@ -18,6 +18,7 @@ import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/router.dart';
 import 'package:kairos/ui/theme/app_theme.dart';
 import 'package:kairos/ui/theme/theme_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -161,8 +162,16 @@ class _KairosAppState extends ConsumerState<KairosApp> {
       }
     }
 
-    // Seed default holidays if empty
-    await db.holidayDao.seedDefaultHolidays(DateTime.now().year);
+    // Seed default holidays only once across app lifetime
+    final prefs = await SharedPreferences.getInstance();
+    final hasSeeded = prefs.getBool('kairos_holidays_seeded_v1') ?? false;
+    if (!hasSeeded) {
+      await db.holidayDao.seedDefaultHolidays(DateTime.now().year);
+      await prefs.setBool('kairos_holidays_seeded_v1', true);
+    }
+    // Clean up any historical duplicate holidays
+    await db.holidayDao.deduplicateHolidays();
+
     final eventRepo = EventRepository(db.eventDao, db.holidayDao);
     await eventRepo.autoCancelRecurringEventsForActiveHolidays();
   }

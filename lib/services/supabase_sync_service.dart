@@ -843,6 +843,9 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
 
   // ── 7. HOLIDAYS SYNC ───────────────────────────────────────────────
   Future<int> _syncHolidays() async {
+    // 1. Run local deduplication first
+    await _db.holidayDao.deduplicateHolidays();
+
     final url = Uri.parse('$_cleanBaseUrl/rest/v1/holidays?select=*');
     final response = await http.get(url, headers: _headers);
     if (response.statusCode >= 400) {
@@ -895,23 +898,28 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
           );
         }
       }
-
-      for (final local in localList) {
-        final remote = remoteMap[local.syncId!];
-        if (remote == null || local.updatedAt.toUtc().isAfter(DateTime.parse(remote['updated_at'] as String).toUtc())) {
-          toPush.add({
-            'sync_id': local.syncId,
-            'name': local.name,
-            'group_name': local.groupName,
-            'date': TimezoneService.instance.formatForRemoteSync(local.date),
-            'end_date': local.endDate != null ? TimezoneService.instance.formatForRemoteSync(local.endDate!) : null,
-            'is_enabled': local.isEnabled,
-            'is_deleted': local.isDeleted,
-            'updated_at': local.updatedAt.toUtc().toIso8601String(),
-          });
-        }
-      }
     });
+
+    // 2. Run deduplication again to merge any duplicates fetched from remote
+    await _db.holidayDao.deduplicateHolidays();
+
+    // 3. Push local changes and newly soft-deleted duplicates
+    final refreshedLocalList = await _db.select(_db.holidays).get();
+    for (final local in refreshedLocalList) {
+      final remote = remoteMap[local.syncId!];
+      if (remote == null || local.updatedAt.toUtc().isAfter(DateTime.parse(remote['updated_at'] as String).toUtc())) {
+        toPush.add({
+          'sync_id': local.syncId,
+          'name': local.name,
+          'group_name': local.groupName,
+          'date': TimezoneService.instance.formatForRemoteSync(local.date),
+          'end_date': local.endDate != null ? TimezoneService.instance.formatForRemoteSync(local.endDate!) : null,
+          'is_enabled': local.isEnabled,
+          'is_deleted': local.isDeleted,
+          'updated_at': local.updatedAt.toUtc().toIso8601String(),
+        });
+      }
+    }
 
     if (toPush.isNotEmpty) {
       final pushUrl = Uri.parse('$_cleanBaseUrl/rest/v1/holidays');
@@ -922,6 +930,37 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
     }
 
     return remoteMap.length + toPush.length;
+  }
+
+  /// Wipes all local SQLite tables and performs a clean pull from Supabase.
+  /// Useful for resetting web browser cache or recovering from timezone/duplicate sync states.
+  Future<void> resetLocalDatabaseAndPull() async {
+    state = state.copyWith(status: SyncStatus.syncing, errorMessage: null);
+    try {
+      await _db.transaction(() async {
+        await _db.delete(_db.habitLogs).go();
+        await _db.delete(_db.habits).go();
+        await _db.delete(_db.subtasks).go();
+        await _db.delete(_db.tasks).go();
+        await _db.delete(_db.events).go();
+        await _db.delete(_db.holidays).go();
+        await _db.delete(_db.categories).go();
+      });
+
+      final totalSynced = await _performSync();
+      state = state.copyWith(
+        status: SyncStatus.success,
+        lastSyncTime: DateTime.now(),
+        lastSyncedCount: totalSynced,
+        errorMessage: null,
+      );
+    } catch (e) {
+      state = state.copyWith(
+        status: SyncStatus.error,
+        errorMessage: e.toString(),
+      );
+      rethrow;
+    }
   }
 }
 

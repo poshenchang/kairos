@@ -35,25 +35,25 @@ class EventDao extends DatabaseAccessor<AppDatabase> with _$EventDaoMixin {
         .get();
   }
 
-  /// All non-deleted events in range [start, end).
+  /// All non-deleted events overlapping range [start, end).
   Future<List<Event>> getEventsInRange(DateTime start, DateTime end) =>
       (select(events)
             ..where(
               (e) =>
                   e.isDeleted.equals(false) &
-                  e.startTime.isBiggerOrEqualValue(start) &
+                  e.endTime.isBiggerThanValue(start) &
                   e.startTime.isSmallerThanValue(end),
             )
             ..orderBy([(e) => OrderingTerm.asc(e.startTime)]))
           .get();
 
-  /// Watch non-deleted events in range [start, end).
+  /// Watch non-deleted events overlapping range [start, end).
   Stream<List<Event>> watchEventsInRange(DateTime start, DateTime end) =>
       (select(events)
             ..where(
               (e) =>
                   e.isDeleted.equals(false) &
-                  e.startTime.isBiggerOrEqualValue(start) &
+                  e.endTime.isBiggerThanValue(start) &
                   e.startTime.isSmallerThanValue(end),
             )
             ..orderBy([(e) => OrderingTerm.asc(e.startTime)]))

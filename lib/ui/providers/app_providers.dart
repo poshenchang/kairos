@@ -32,7 +32,7 @@ final todayEventsProvider = FutureProvider<List<Event>>((ref) async {
   final endWall = startWall.add(const Duration(days: 1));
   final startUtc = TimezoneService.instance.fromActiveTime(startWall, settings);
   final endUtc = TimezoneService.instance.fromActiveTime(endWall, settings);
-  return repo.getExpandedEventsInRange(startUtc, endUtc);
+  return repo.getExpandedEventsInRange(startUtc, endUtc, settings);
 });
 
 final selectedDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
@@ -45,7 +45,7 @@ final selectedDateEventsProvider = FutureProvider<List<Event>>((ref) async {
   final endWall = startWall.add(const Duration(days: 1));
   final startUtc = TimezoneService.instance.fromActiveTime(startWall, settings);
   final endUtc = TimezoneService.instance.fromActiveTime(endWall, settings);
-  return repo.getExpandedEventsInRange(startUtc, endUtc);
+  return repo.getExpandedEventsInRange(startUtc, endUtc, settings);
 });
 
 final weekEventsProvider = FutureProvider.family<List<Event>, DateTime>((ref, weekStart) async {
@@ -55,7 +55,7 @@ final weekEventsProvider = FutureProvider.family<List<Event>, DateTime>((ref, we
   final endWall = startWall.add(const Duration(days: 7));
   final startUtc = TimezoneService.instance.fromActiveTime(startWall, settings);
   final endUtc = TimezoneService.instance.fromActiveTime(endWall, settings);
-  return repo.getExpandedEventsInRange(startUtc, endUtc);
+  return repo.getExpandedEventsInRange(startUtc, endUtc, settings);
 });
 
 final holidaysForDateProvider = FutureProvider.family<List<Holiday>, DateTime>((ref, date) async {
@@ -104,19 +104,25 @@ final habitCompletionsForWeekProvider = StreamProvider.family<Map<int, int>, Dat
 
 final weeklyHabitCompletionsProvider = StreamProvider<Map<int, int>>((ref) {
   final dao = ref.watch(habitDaoProvider);
-  final now = DateTime.now();
+  final settings = ref.watch(settingsNotifierProvider);
+  final now = TimezoneService.instance.activeNow(settings);
   final daysBack = now.weekday % 7; // Sunday start (Sunday = weekday 7 % 7 = 0)
   final sunday = DateTime(now.year, now.month, now.day).subtract(Duration(days: daysBack));
-  final start = DateTime(sunday.year, sunday.month, sunday.day);
-  final end = start.add(const Duration(days: 7));
+  final startWall = DateTime(sunday.year, sunday.month, sunday.day);
+  final endWall = startWall.add(const Duration(days: 7));
+  final start = TimezoneService.instance.fromActiveTime(startWall, settings);
+  final end = TimezoneService.instance.fromActiveTime(endWall, settings);
   return dao.watchWeeklyCompletions(start, end);
 });
 
 final todayHabitCompletionsProvider = StreamProvider<Map<int, int>>((ref) {
   final dao = ref.watch(habitDaoProvider);
-  final now = DateTime.now();
-  final start = DateTime(now.year, now.month, now.day);
-  final end = start.add(const Duration(days: 1));
+  final settings = ref.watch(settingsNotifierProvider);
+  final now = TimezoneService.instance.activeNow(settings);
+  final startWall = DateTime(now.year, now.month, now.day);
+  final endWall = startWall.add(const Duration(days: 1));
+  final start = TimezoneService.instance.fromActiveTime(startWall, settings);
+  final end = TimezoneService.instance.fromActiveTime(endWall, settings);
   return dao.watchWeeklyCompletions(start, end);
 });
 

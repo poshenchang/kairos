@@ -137,6 +137,77 @@ void main() {
       expect(after.isEnabled, isFalse);
       expect(after.updatedAt.isAfter(before.updatedAt) || after.updatedAt.isAtSameMomentAs(before.updatedAt), isTrue);
     });
+
+    test('seedDefaultHolidays does not duplicate holidays on repeated calls', () async {
+      await db.holidayDao.seedDefaultHolidays(2026);
+      final initialCount = (await db.holidayDao.getAllHolidays()).length;
+      expect(initialCount, greaterThan(0));
+
+      // Call again - should be no-op
+      await db.holidayDao.seedDefaultHolidays(2026);
+      final secondCount = (await db.holidayDao.getAllHolidays()).length;
+      expect(secondCount, equals(initialCount));
+    });
+
+    test('seedDefaultHolidays does not resurrect deleted group unless forced', () async {
+      await db.holidayDao.seedDefaultHolidays(2026);
+      await db.holidayDao.deleteHolidayGroup('Taiwanese Holidays');
+
+      var active = await db.holidayDao.getAllHolidays();
+      expect(active.any((h) => h.groupName == 'Taiwanese Holidays'), isFalse);
+
+      // Normal seed should NOT resurrect or duplicate
+      await db.holidayDao.seedDefaultHolidays(2026, force: false);
+      active = await db.holidayDao.getAllHolidays();
+      expect(active.any((h) => h.groupName == 'Taiwanese Holidays'), isFalse);
+
+      // Forced seed will resurrect
+      await db.holidayDao.seedDefaultHolidays(2026, force: true);
+      active = await db.holidayDao.getAllHolidays();
+      expect(active.any((h) => h.groupName == 'Taiwanese Holidays'), isTrue);
+    });
+
+    test('deduplicateHolidays marks duplicate rows as isDeleted=true', () async {
+      // Manually insert 3 duplicates of the same holiday with different syncIds
+      await db.holidayDao.insertHoliday(
+        HolidaysCompanion.insert(
+          name: 'Duplicate Day',
+          groupName: const Value('Custom'),
+          date: DateTime(2026, 12, 1),
+        ),
+      );
+      await db.holidayDao.insertHoliday(
+        HolidaysCompanion.insert(
+          name: 'Duplicate Day',
+          groupName: const Value('Custom'),
+          date: DateTime(2026, 12, 1),
+        ),
+      );
+      await db.holidayDao.insertHoliday(
+        HolidaysCompanion.insert(
+          name: 'Duplicate Day',
+          groupName: const Value('Custom'),
+          date: DateTime(2026, 12, 1),
+        ),
+      );
+
+      final beforeRaw = (await db.select(db.holidays).get()).where((h) => h.name == 'Duplicate Day').toList();
+      expect(beforeRaw.length, 3);
+
+      // In-memory filter prevents UI from seeing all 3
+      final activeBeforeDedup = (await db.holidayDao.getAllHolidays()).where((h) => h.name == 'Duplicate Day').toList();
+      expect(activeBeforeDedup.length, 1);
+
+      // Run DB deduplication
+      final purged = await db.holidayDao.deduplicateHolidays();
+      expect(purged, 2);
+
+      final afterRaw = (await db.select(db.holidays).get()).where((h) => h.name == 'Duplicate Day').toList();
+      final activeCount = afterRaw.where((h) => !h.isDeleted).length;
+      final deletedCount = afterRaw.where((h) => h.isDeleted).length;
+      expect(activeCount, 1);
+      expect(deletedCount, 2);
+    });
   });
 }
 

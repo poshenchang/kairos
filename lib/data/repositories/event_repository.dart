@@ -5,6 +5,8 @@
 
 import 'package:drift/drift.dart' show Value;
 import 'package:kairos/data/database/app_database.dart';
+import 'package:kairos/services/settings_service.dart';
+import 'package:kairos/services/timezone_service.dart';
 
 class EventRepository {
   const EventRepository(this._dao, [this._holidayDao]);
@@ -19,8 +21,9 @@ class EventRepository {
   /// skipping active holidays and respecting UNTIL/COUNT limits.
   Future<List<Event>> getExpandedEventsInRange(
     DateTime start,
-    DateTime end,
-  ) async {
+    DateTime end, [
+    SettingsState? settings,
+  ]) async {
     final allEvents = await _dao.getEventsInRange(
       start.subtract(const Duration(days: 365)),
       end,
@@ -38,9 +41,10 @@ class EventRepository {
           end,
           holidays: holidays,
           holidayDaySet: holidayDaySet,
+          settings: settings,
         ));
       } else {
-        if (!event.startTime.isBefore(start) && event.startTime.isBefore(end)) {
+        if (event.endTime.isAfter(start) && event.startTime.isBefore(end)) {
           expanded.add(event);
         }
       }
@@ -66,6 +70,7 @@ class EventRepository {
     List<Holiday> holidays = const [],
     Set<int>? holidayDaySet,
     bool ignoreExdates = false,
+    SettingsState? settings,
   }) {
     final rule = baseEvent.rrule;
     if (rule == null || rule.isEmpty) return [];
@@ -109,15 +114,21 @@ class EventRepository {
 
     final occurrences = <Event>[];
 
-    final baseDay = DateTime(baseStart.year, baseStart.month, baseStart.day);
-    final rangeDay = DateTime(rangeStart.year, rangeStart.month, rangeStart.day);
+    final isUtc = baseStart.isUtc;
+    final baseDay = isUtc
+        ? DateTime.utc(baseStart.year, baseStart.month, baseStart.day)
+        : DateTime(baseStart.year, baseStart.month, baseStart.day);
+    final rangeDay = rangeStart.isUtc
+        ? DateTime.utc(rangeStart.year, rangeStart.month, rangeStart.day)
+        : DateTime(rangeStart.year, rangeStart.month, rangeStart.day);
 
     // Walk dates starting from baseEvent's start day or rangeStart, whichever is later
     // unless maxCount is set (then we must walk from baseStart to accurately count occurrences)
     var current = (maxCount != null || rangeDay.isBefore(baseDay)) ? baseDay : rangeDay;
 
-    final exclusiveEnd = DateTime(rangeEnd.year, rangeEnd.month, rangeEnd.day)
-        .add(const Duration(days: 1));
+    final exclusiveEnd = rangeEnd.isUtc
+        ? DateTime.utc(rangeEnd.year, rangeEnd.month, rangeEnd.day).add(const Duration(days: 1))
+        : DateTime(rangeEnd.year, rangeEnd.month, rangeEnd.day).add(const Duration(days: 1));
 
     int totalOccurrencesSeen = 0;
     final isDaily = freq == 'DAILY';
@@ -125,14 +136,23 @@ class EventRepository {
     while (current.isBefore(exclusiveEnd)) {
       final matchesDay = isDaily || (targetWeekdays != null && targetWeekdays.contains(current.weekday));
       if (matchesDay) {
-        final occurrenceStart = DateTime(
-          current.year,
-          current.month,
-          current.day,
-          baseStart.hour,
-          baseStart.minute,
-          baseStart.second,
-        );
+        final occurrenceStart = isUtc
+            ? DateTime.utc(
+                current.year,
+                current.month,
+                current.day,
+                baseStart.hour,
+                baseStart.minute,
+                baseStart.second,
+              )
+            : DateTime(
+                current.year,
+                current.month,
+                current.day,
+                baseStart.hour,
+                baseStart.minute,
+                baseStart.second,
+              );
 
         // Never produce occurrences before the recurring series actually begins!
         if (occurrenceStart.isBefore(baseStart)) {

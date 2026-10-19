@@ -98,6 +98,21 @@ void main() {
       expect(parsed.day, 19);
       expect(parsed.hour, 1);
       expect(parsed.minute, 30);
+
+      // Verify handling of Postgres "+00" with space
+      final postgresStyle = tz.parseRemoteTimestamp('2026-10-19 01:30:00+00');
+      expect(postgresStyle.isUtc, isTrue);
+      expect(postgresStyle.hour, 1);
+
+      // Verify handling of no timezone indicator (forces UTC)
+      final noTz = tz.parseRemoteTimestamp('2026-10-19T01:30:00');
+      expect(noTz.isUtc, isTrue);
+      expect(noTz.hour, 1);
+
+      // Verify handling of +08:00 offset
+      final offsetStyle = tz.parseRemoteTimestamp('2026-10-19T09:30:00+08:00');
+      expect(offsetStyle.isUtc, isTrue);
+      expect(offsetStyle.hour, 1);
     });
   });
 

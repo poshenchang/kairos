@@ -75,9 +75,12 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
   }
 
   Future<List<Event>> _loadEvents() {
+    final settings = ref.read(settingsNotifierProvider);
     final rangeStart = _startDate.subtract(const Duration(days: 7));
     final rangeEnd = _startDate.add(const Duration(days: _totalDays + 7));
-    return ref.read(eventRepositoryProvider).getExpandedEventsInRange(rangeStart, rangeEnd);
+    final utcStart = TimezoneService.instance.fromActiveTime(rangeStart, settings);
+    final utcEnd = TimezoneService.instance.fromActiveTime(rangeEnd, settings);
+    return ref.read(eventRepositoryProvider).getExpandedEventsInRange(utcStart, utcEnd, settings);
   }
 
   void _refreshEvents() {
@@ -198,6 +201,14 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
     // Listen for database changes to refresh events automatically
     ref.listen(allEventsStreamProvider, (_, __) {
       _refreshEvents();
+    });
+
+    // Listen for settings/timezone changes to refresh events automatically
+    ref.listen(settingsNotifierProvider, (previous, next) {
+      if (previous?.timezoneMode != next.timezoneMode ||
+          previous?.manualTimezoneOffsetMinutes != next.manualTimezoneOffsetMinutes) {
+        _refreshEvents();
+      }
     });
 
     return FutureBuilder<List<Event>>(

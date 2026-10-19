@@ -26,11 +26,13 @@ import 'package:kairos/ui/widgets/habit_schedule_dialog.dart';
 
 class ScheduleSidebar extends ConsumerStatefulWidget {
   final DateTime currentWeekStart;
+  final bool isHorizontal;
   final VoidCallback? onClose;
 
   const ScheduleSidebar({
     super.key,
     required this.currentWeekStart,
+    this.isHorizontal = false,
     this.onClose,
   });
 
@@ -78,90 +80,167 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Sidebar Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 8, 8),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.drag_indicator,
-                  color: theme.colorScheme.primary,
-                  size: 20,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Schedule Assistant',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                      ),
-                      Text(
-                        'Drag into timetable slots',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: isDark ? Colors.grey[400] : Colors.grey[600],
+          if (widget.isHorizontal) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 6, 8, 4),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.drag_indicator,
+                    color: theme.colorScheme.primary,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'Assistant',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: SegmentedButton<String>(
+                        showSelectedIcon: false,
+                        style: const ButtonStyle(
+                          visualDensity: VisualDensity.compact,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
+                        segments: [
+                          ButtonSegment(
+                            value: 'all',
+                            label: Text('All ($totalCount)', style: const TextStyle(fontSize: 10)),
+                          ),
+                          ButtonSegment(
+                            value: 'habits',
+                            label: Text('Habits (${habits.length})', style: const TextStyle(fontSize: 10)),
+                          ),
+                          ButtonSegment(
+                            value: 'preps',
+                            label: Text('Preps (${prepEvents.length})', style: const TextStyle(fontSize: 10)),
+                          ),
+                          ButtonSegment(
+                            value: 'tasks',
+                            label: Text('Tasks (${tasks.length})', style: const TextStyle(fontSize: 10)),
+                          ),
+                        ],
+                        selected: {_selectedTab},
+                        onSelectionChanged: (val) {
+                          setState(() => _selectedTab = val.first);
+                        },
                       ),
-                    ],
+                    ),
                   ),
-                ),
-                if (widget.onClose != null)
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 18),
-                    tooltip: 'Close Sidebar',
-                    onPressed: widget.onClose,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-              ],
-            ),
-          ),
-
-          // Filter Segmented Control
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
-            child: SizedBox(
-              height: 32,
-              child: SegmentedButton<String>(
-                showSelectedIcon: false,
-                style: const ButtonStyle(
-                  visualDensity: VisualDensity.compact,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                segments: [
-                  ButtonSegment(
-                    value: 'all',
-                    label: Text('All ($totalCount)', style: const TextStyle(fontSize: 10.5)),
-                  ),
-                  ButtonSegment(
-                    value: 'habits',
-                    label: Text('Habits (${habits.length})', style: const TextStyle(fontSize: 10.5)),
-                  ),
-                  ButtonSegment(
-                    value: 'preps',
-                    label: Text('Preps (${prepEvents.length})', style: const TextStyle(fontSize: 10.5)),
-                  ),
-                  ButtonSegment(
-                    value: 'tasks',
-                    label: Text('Tasks (${tasks.length})', style: const TextStyle(fontSize: 10.5)),
-                  ),
+                  if (widget.onClose != null) ...[
+                    const SizedBox(width: 4),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      tooltip: 'Close Sidebar',
+                      onPressed: widget.onClose,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
                 ],
-                selected: {_selectedTab},
-                onSelectionChanged: (val) {
-                  setState(() => _selectedTab = val.first);
-                },
               ),
             ),
-          ),
-          const Divider(height: 12),
+            const Divider(height: 6),
+            Expanded(
+              child: _buildHorizontalContent(
+                context,
+                habits: habits,
+                completions: completions,
+                prepEvents: prepEvents,
+                tasks: tasks,
+                allEvents: allEvents,
+                habitSchedules: habitSchedules,
+                isDark: isDark,
+              ),
+            ),
+          ] else ...[
+            // Sidebar Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 8, 8),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.drag_indicator,
+                    color: theme.colorScheme.primary,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Schedule Assistant',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                        ),
+                        Text(
+                          'Drag into timetable slots',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isDark ? Colors.grey[400] : Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (widget.onClose != null)
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      tooltip: 'Close Sidebar',
+                      onPressed: widget.onClose,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                ],
+              ),
+            ),
 
-          // Content List
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              children: [
+            // Filter Segmented Control
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
+              child: SizedBox(
+                height: 32,
+                child: SegmentedButton<String>(
+                  showSelectedIcon: false,
+                  style: const ButtonStyle(
+                    visualDensity: VisualDensity.compact,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  segments: [
+                    ButtonSegment(
+                      value: 'all',
+                      label: Text('All ($totalCount)', style: const TextStyle(fontSize: 10.5)),
+                    ),
+                    ButtonSegment(
+                      value: 'habits',
+                      label: Text('Habits (${habits.length})', style: const TextStyle(fontSize: 10.5)),
+                    ),
+                    ButtonSegment(
+                      value: 'preps',
+                      label: Text('Preps (${prepEvents.length})', style: const TextStyle(fontSize: 10.5)),
+                    ),
+                    ButtonSegment(
+                      value: 'tasks',
+                      label: Text('Tasks (${tasks.length})', style: const TextStyle(fontSize: 10.5)),
+                    ),
+                  ],
+                  selected: {_selectedTab},
+                  onSelectionChanged: (val) {
+                    setState(() => _selectedTab = val.first);
+                  },
+                ),
+              ),
+            ),
+            const Divider(height: 12),
+
+            // Content List
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                children: [
                 // ── Habits Section ──
                 if (_selectedTab == 'all' || _selectedTab == 'habits') ...[
                   _buildSectionHeader(
@@ -267,7 +346,91 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
             ),
           ),
         ],
-      ),
+      ],
+    ),
+  );
+  }
+
+  Widget _buildHorizontalContent(
+    BuildContext context, {
+    required List<Habit> habits,
+    required Map<int, int> completions,
+    required List<Event> prepEvents,
+    required List<Task> tasks,
+    required List<Event> allEvents,
+    required Map<int, List<HabitDefaultSlot>> habitSchedules,
+    required bool isDark,
+  }) {
+    final cardWidgets = <Widget>[];
+
+    // Habit cards
+    if (_selectedTab == 'all' || _selectedTab == 'habits') {
+      for (final habit in habits) {
+        cardWidgets.add(
+          SizedBox(
+            width: 250,
+            child: SingleChildScrollView(
+              child: _buildHabitCard(
+                context,
+                habit,
+                completions,
+                allEvents,
+                habitSchedules[habit.id] ?? [],
+                isDark,
+              ),
+            ),
+          ),
+        );
+      }
+    }
+
+    // Prep cards
+    if (_selectedTab == 'all' || _selectedTab == 'preps') {
+      for (final event in prepEvents) {
+        cardWidgets.add(
+          SizedBox(
+            width: 250,
+            child: SingleChildScrollView(
+              child: _buildPrepCard(context, event, allEvents, isDark),
+            ),
+          ),
+        );
+      }
+    }
+
+    // Task cards
+    if (_selectedTab == 'all' || _selectedTab == 'tasks') {
+      for (final task in tasks) {
+        cardWidgets.add(
+          SizedBox(
+            width: 260,
+            child: SingleChildScrollView(
+              child: _buildTaskCard(context, task, allEvents, isDark),
+            ),
+          ),
+        );
+      }
+    }
+
+    if (cardWidgets.isEmpty) {
+      return Center(
+        child: Text(
+          _selectedTab == 'habits'
+              ? 'No active habits'
+              : (_selectedTab == 'preps'
+                  ? 'No exam/interview preps needed'
+                  : (_selectedTab == 'tasks' ? 'All tasks caught up!' : 'No scheduled items available')),
+          style: const TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+      );
+    }
+
+    return ListView.separated(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      itemCount: cardWidgets.length,
+      separatorBuilder: (_, __) => const SizedBox(width: 8),
+      itemBuilder: (context, index) => cardWidgets[index],
     );
   }
 
@@ -442,7 +605,7 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
     final progress = target > 0 ? ((completedCount + scheduledCount) / target).clamp(0.0, 1.0) : 0.0;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: widget.isHorizontal ? const EdgeInsets.only(bottom: 2) : const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1E293B) : Colors.white,
@@ -620,7 +783,7 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
     bool isDark,
   ) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: widget.isHorizontal ? const EdgeInsets.only(bottom: 2) : const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1E293B) : Colors.white,
@@ -743,7 +906,7 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
     );
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: widget.isHorizontal ? const EdgeInsets.only(bottom: 2) : const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1E293B) : Colors.white,
         borderRadius: BorderRadius.circular(10),
