@@ -82,6 +82,8 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     _loadSettings();
   }
 
+  SettingsNotifier.withState(SettingsState initialState) : super(initialState);
+
   Future<void> _loadSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();

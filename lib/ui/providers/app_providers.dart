@@ -122,6 +122,53 @@ final todayHabitCompletionsProvider = StreamProvider<Map<int, int>>((ref) {
 
 // ── Smart Free Time & Suggestion ─────────────────────────────────────────────
 
+enum SmartSuggestionPeriod {
+  night,   // 22:00 - 04:00 (Rewind & Wind Down)
+  morning, // 04:00 - 09:00 (Get Ready for the Day)
+  daytime, // 09:00 - 22:00 (What to Do Next)
+}
+
+class HeroQuote {
+  final String text;
+  final String author;
+
+  const HeroQuote(this.text, this.author);
+
+  static const List<HeroQuote> morningQuotes = [
+    HeroQuote('The secret of getting ahead is getting started.', 'Mark Twain'),
+    HeroQuote('Each morning we are born again. What we do today matters most.', 'Buddha'),
+    HeroQuote('Small daily improvements over time lead to stunning results.', 'Robin Sharma'),
+    HeroQuote('Focus on being productive instead of busy.', 'Tim Ferriss'),
+    HeroQuote('Action is the foundational key to all success.', 'Pablo Picasso'),
+    HeroQuote('Make each day your masterpiece.', 'John Wooden'),
+    HeroQuote('Either you run the day, or the day runs you.', 'Jim Rohn'),
+    HeroQuote('Start where you are. Use what you have. Do what you can.', 'Arthur Ashe'),
+    HeroQuote('Your time is limited, don\'t waste it living someone else\'s life.', 'Steve Jobs'),
+    HeroQuote('Today\'s accomplishments were yesterday\'s impossibilities.', 'Robert H. Schuller'),
+    HeroQuote('Consistency is the DNA of mastery.', 'Robin Sharma'),
+  ];
+
+  static const List<HeroQuote> eveningQuotes = [
+    HeroQuote('Sleep is the best meditation.', 'Dalai Lama'),
+    HeroQuote('Tomorrow is a fresh start with no mistakes in it yet.', 'L.M. Montgomery'),
+    HeroQuote('Take rest; a field that has rested gives a bountiful crop.', 'Ovid'),
+    HeroQuote('Rest is not idleness, but the key to sustained productivity.', 'Alex Soojung-Kim Pang'),
+    HeroQuote('Each night, when I go to sleep, I die. And the next morning, when I wake up, I am reborn.', 'Mahatma Gandhi'),
+    HeroQuote('Finish each day and be done with it. You have done what you could.', 'Ralph Waldo Emerson'),
+    HeroQuote('End the day with gratitude. There is always something to be thankful for.', 'Unknown'),
+  ];
+
+  static HeroQuote getMorningQuote(DateTime date) {
+    final index = (date.year + date.month + date.day) % morningQuotes.length;
+    return morningQuotes[index];
+  }
+
+  static HeroQuote getEveningQuote(DateTime date) {
+    final index = (date.year + date.month + date.day) % eveningQuotes.length;
+    return eveningQuotes[index];
+  }
+}
+
 class SmartSuggestion {
   final Duration freeDuration;
   final String title;
@@ -131,6 +178,10 @@ class SmartSuggestion {
   final bool hasFreeTime;
   final Task? task;
   final Habit? habit;
+  final SmartSuggestionPeriod period;
+  final String? quote;
+  final String? quoteAuthor;
+  final String? badgeLabel;
 
   const SmartSuggestion({
     required this.freeDuration,
@@ -141,6 +192,10 @@ class SmartSuggestion {
     required this.hasFreeTime,
     this.task,
     this.habit,
+    this.period = SmartSuggestionPeriod.daytime,
+    this.quote,
+    this.quoteAuthor,
+    this.badgeLabel,
   });
 }
 
@@ -158,6 +213,16 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
   final habits = habitsAsync.value ?? [];
   final habitCounts = habitCountsAsync.value ?? {};
   final todayHabitCounts = todayHabitCountsAsync.value ?? {};
+
+  // Time-of-day periods:
+  // Night / Rewind: 10:00 PM to 04:00 AM (22:00 - 03:59)
+  // Morning Kickoff: 04:00 AM to 09:00 AM (04:00 - 08:59)
+  // Daytime: 09:00 AM to 10:00 PM (09:00 - 21:59)
+  final isNight = now.hour >= 22 || now.hour < 4;
+  final isMorning = now.hour >= 4 && now.hour < 9;
+  final period = isNight
+      ? SmartSuggestionPeriod.night
+      : (isMorning ? SmartSuggestionPeriod.morning : SmartSuggestionPeriod.daytime);
 
   // 1. Check if user is CURRENTLY in an event right now according to the timetable
   final currentEvents = todayEvents.where((e) {
@@ -197,6 +262,12 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
       whatNextText = 'Open time after this event ends.';
     }
 
+    final (badgeText, quoteItem) = switch (period) {
+      SmartSuggestionPeriod.night => ('EVENING IN EVENT', HeroQuote.getEveningQuote(now)),
+      SmartSuggestionPeriod.morning => ('MORNING IN EVENT', HeroQuote.getMorningQuote(now)),
+      SmartSuggestionPeriod.daytime => ('WHAT TO DO NEXT', null),
+    };
+
     return SmartSuggestion(
       freeDuration: Duration.zero,
       title: 'In Event: ${currentEvent.title}',
@@ -204,6 +275,10 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
       actionLabel: 'View Schedule',
       category: currentEvent.category,
       hasFreeTime: false,
+      period: period,
+      badgeLabel: badgeText,
+      quote: quoteItem?.text,
+      quoteAuthor: quoteItem?.author,
     );
   }
 
@@ -226,6 +301,12 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
       : 120;
 
   if (nextEvent != null && freeMinutes < 15) {
+    final (badgeText, quoteItem) = switch (period) {
+      SmartSuggestionPeriod.night => ('EVENING WRAP-UP', HeroQuote.getEveningQuote(now)),
+      SmartSuggestionPeriod.morning => ('MORNING KICKOFF', HeroQuote.getMorningQuote(now)),
+      SmartSuggestionPeriod.daytime => ('UPCOMING EVENT', null),
+    };
+
     return SmartSuggestion(
       freeDuration: Duration(minutes: freeMinutes.clamp(0, 15)),
       title: 'Upcoming: ${nextEvent.title}',
@@ -233,6 +314,10 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
       actionLabel: 'View Event',
       category: nextEvent.category,
       hasFreeTime: false,
+      period: period,
+      badgeLabel: badgeText,
+      quote: quoteItem?.text,
+      quoteAuthor: quoteItem?.author,
     );
   }
 
@@ -398,7 +483,170 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
       if (rankCmp != 0) return rankCmp;
       return a.effectiveDeadline.compareTo(b.effectiveDeadline);
     });
+  }
 
+  if (isNight) {
+    // ─────────────── NIGHT / REWIND MODE (10:00 PM - 04:00 AM) ───────────────
+    final eveningQuote = HeroQuote.getEveningQuote(now);
+
+    // 1. Overdue task (rank 1)
+    final overdueCandidate = candidates.where((c) => c.priorityRank == 1).firstOrNull;
+    if (overdueCandidate != null) {
+      final task = overdueCandidate.suggestion.task!;
+      return SmartSuggestion(
+        freeDuration: Duration(minutes: freeMinutes),
+        title: 'Rewind & Wrap Up: ${task.title}',
+        description: 'Overdue task pending. Wrap this up quickly or reschedule it so you can rest with peace of mind.',
+        actionLabel: 'Wrap Up (Focus Timer)',
+        category: task.category,
+        hasFreeTime: true,
+        task: task,
+        period: SmartSuggestionPeriod.night,
+        quote: eveningQuote.text,
+        quoteAuthor: eveningQuote.author,
+        badgeLabel: 'REWIND & WIND DOWN',
+      );
+    }
+
+    // 2. Imminent task due tonight (< 3 hours)
+    final imminentCandidate = candidates.where((c) => c.priorityRank == 2).firstOrNull;
+    if (imminentCandidate != null) {
+      final task = imminentCandidate.suggestion.task!;
+      return SmartSuggestion(
+        freeDuration: Duration(minutes: freeMinutes),
+        title: 'Rewind & Finish: ${task.title}',
+        description: '${imminentCandidate.suggestion.description} Final push before sleep.',
+        actionLabel: 'Start Focus Timer (25m)',
+        category: task.category,
+        hasFreeTime: true,
+        task: task,
+        period: SmartSuggestionPeriod.night,
+        quote: eveningQuote.text,
+        quoteAuthor: eveningQuote.author,
+        badgeLabel: 'REWIND & WIND DOWN',
+      );
+    }
+
+    // 3. Uncompleted daily habit (e.g. night reading, stretch, meditation)
+    final dailyHabitCandidate = candidates.where((c) =>
+      c.suggestion.habit?.targetFrequencyPerWeek != null &&
+      c.suggestion.habit!.targetFrequencyPerWeek >= 7
+    ).firstOrNull;
+    if (dailyHabitCandidate != null) {
+      final habit = dailyHabitCandidate.suggestion.habit!;
+      return SmartSuggestion(
+        freeDuration: Duration(minutes: freeMinutes),
+        title: 'Rewind: ${habit.title}',
+        description: 'Wind down with your daily habit before turning in for the night.',
+        actionLabel: 'Log Session or Focus',
+        category: habit.category,
+        hasFreeTime: true,
+        habit: habit,
+        period: SmartSuggestionPeriod.night,
+        quote: eveningQuote.text,
+        quoteAuthor: eveningQuote.author,
+        badgeLabel: 'REWIND & WIND DOWN',
+      );
+    }
+
+    // 4. Pure Rewind Time: No urgent tasks or habits tonight!
+    // Check tomorrow's schedule for preview:
+    final tomorrowDate = DateTime(now.year, now.month, now.day + 1);
+    final tomorrowEvents = todayEvents.where((e) {
+      if (e.isDeleted || e.eventType == 'reminder') return false;
+      final start = TimezoneService.instance.toActiveTime(e.startTime, settings);
+      return start.year == tomorrowDate.year &&
+             start.month == tomorrowDate.month &&
+             start.day == tomorrowDate.day;
+    }).toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
+
+    final String rewindDetail;
+    if (tomorrowEvents.isNotEmpty) {
+      final firstTomorrow = tomorrowEvents.first;
+      final firstStart = TimezoneService.instance.toActiveTime(firstTomorrow.startTime, settings);
+      rewindDetail = 'Great job today. Tomorrow starts with "${firstTomorrow.title}" at ${DateFormat('h:mm a').format(firstStart)}. Put away bright screens, relax, and get ready for a restful sleep.';
+    } else {
+      rewindDetail = 'Great job getting through today. Take time to unwind, put away bright screens, and enjoy your rewind time.';
+    }
+
+    return SmartSuggestion(
+      freeDuration: Duration(minutes: freeMinutes),
+      title: 'Time to Rewind & Recharge',
+      description: rewindDetail,
+      actionLabel: 'Review Tomorrow\'s Agenda',
+      category: 'personal',
+      hasFreeTime: true,
+      period: SmartSuggestionPeriod.night,
+      quote: eveningQuote.text,
+      quoteAuthor: eveningQuote.author,
+      badgeLabel: 'REWIND & WIND DOWN',
+    );
+  }
+
+  if (isMorning) {
+    // ─────────────── MORNING KICKOFF MODE (04:00 AM - 09:00 AM) ───────────────
+    final morningQuote = HeroQuote.getMorningQuote(now);
+
+    // 1. Overdue task to clear first
+    final overdueCandidate = candidates.where((c) => c.priorityRank == 1).firstOrNull;
+    if (overdueCandidate != null) {
+      final task = overdueCandidate.suggestion.task!;
+      return SmartSuggestion(
+        freeDuration: Duration(minutes: freeMinutes),
+        title: 'Morning Win: ${task.title}',
+        description: 'Start your morning with a quick win by tackling this overdue task before your day gets busy.',
+        actionLabel: 'Start Focus Timer (25m)',
+        category: task.category,
+        hasFreeTime: true,
+        task: task,
+        period: SmartSuggestionPeriod.morning,
+        quote: morningQuote.text,
+        quoteAuthor: morningQuote.author,
+        badgeLabel: 'GET READY FOR THE DAY',
+      );
+    }
+
+    // Today's upcoming events:
+    final morningEvents = todayEvents.where((e) {
+      if (e.isDeleted || e.eventType == 'reminder') return false;
+      final start = TimezoneService.instance.toActiveTime(e.startTime, settings);
+      return start.year == now.year &&
+             start.month == now.month &&
+             start.day == now.day &&
+             start.isAfter(now);
+    }).toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
+
+    final dailyHabitCandidate = candidates.where((c) =>
+      c.suggestion.habit?.targetFrequencyPerWeek != null &&
+      c.suggestion.habit!.targetFrequencyPerWeek >= 7
+    ).firstOrNull;
+
+    final String morningDetail;
+    if (morningEvents.isNotEmpty) {
+      final first = morningEvents.first;
+      final startFmt = DateFormat('h:mm a').format(TimezoneService.instance.toActiveTime(first.startTime, settings));
+      morningDetail = 'You have ${morningEvents.length} event(s) scheduled today, starting with "${first.title}" at $startFmt. Hydrate, review your materials, and set your morning intentions.';
+    } else {
+      morningDetail = 'Clear slate today! Take time for your morning routine, review your goals, and set your top 3 priorities for the day.';
+    }
+
+    return SmartSuggestion(
+      freeDuration: Duration(minutes: freeMinutes),
+      title: 'Rise & Shine: Ready for Today',
+      description: morningDetail,
+      actionLabel: 'View Today\'s Agenda',
+      category: 'personal',
+      hasFreeTime: true,
+      habit: dailyHabitCandidate?.suggestion.habit,
+      period: SmartSuggestionPeriod.morning,
+      quote: morningQuote.text,
+      quoteAuthor: morningQuote.author,
+      badgeLabel: 'GET READY FOR THE DAY',
+    );
+  }
+
+  // ─────────────── DAYTIME MODE (09:00 AM - 10:00 PM) ───────────────
+  if (candidates.isNotEmpty) {
     return candidates.first.suggestion;
   }
 
@@ -409,6 +657,8 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
     actionLabel: 'Plan Ahead',
     category: 'personal',
     hasFreeTime: true,
+    period: SmartSuggestionPeriod.daytime,
+    badgeLabel: 'WHAT TO DO NEXT',
   );
 });
 

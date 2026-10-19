@@ -110,19 +110,54 @@ class DashboardScreen extends ConsumerWidget {
     WidgetRef ref,
     SmartSuggestion suggestion,
   ) {
+    final (gradientColors, shadowColor, badgeIcon, defaultBadgeLabel, btnColor) = switch (suggestion.period) {
+      SmartSuggestionPeriod.night => (
+        [const Color(0xFF0F172A), const Color(0xFF1E1B4B)],
+        const Color(0xFF1E1B4B).withValues(alpha: 0.4),
+        Icons.bedtime_outlined,
+        'REWIND & WIND DOWN',
+        const Color(0xFF1E1B4B),
+      ),
+      SmartSuggestionPeriod.morning => (
+        [const Color(0xFFD97706), const Color(0xFF4F46E5)],
+        const Color(0xFFD97706).withValues(alpha: 0.35),
+        Icons.wb_sunny_outlined,
+        'GET READY FOR THE DAY',
+        const Color(0xFFB45309),
+      ),
+      SmartSuggestionPeriod.daytime => (
+        [const Color(0xFF2563EB), const Color(0xFF4F46E5)],
+        const Color(0xFF2563EB).withValues(alpha: 0.3),
+        Icons.lightbulb_outline,
+        'WHAT TO DO NEXT',
+        const Color(0xFF2563EB),
+      ),
+    };
+
+    final isCalendarAction = suggestion.actionLabel.contains('Agenda') ||
+        suggestion.actionLabel.contains('Schedule') ||
+        suggestion.actionLabel.contains('Calendar') ||
+        suggestion.actionLabel.contains('Plan');
+
+    final primaryIcon = switch (suggestion.period) {
+      SmartSuggestionPeriod.night => isCalendarAction ? Icons.calendar_month : Icons.play_arrow,
+      SmartSuggestionPeriod.morning => isCalendarAction ? Icons.calendar_month : Icons.play_arrow,
+      SmartSuggestionPeriod.daytime => suggestion.hasFreeTime ? Icons.play_arrow : Icons.calendar_today,
+    };
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF2563EB), Color(0xFF4F46E5)],
+        gradient: LinearGradient(
+          colors: gradientColors,
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF2563EB).withValues(alpha: 0.3),
+            color: shadowColor,
             blurRadius: 16,
             offset: const Offset(0, 8),
           ),
@@ -133,11 +168,11 @@ class DashboardScreen extends ConsumerWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.lightbulb_outline, color: Colors.amberAccent, size: 20),
+              Icon(badgeIcon, color: Colors.amberAccent, size: 20),
               const SizedBox(width: 8),
-              const Text(
-                'WHAT TO DO NEXT',
-                style: TextStyle(
+              Text(
+                suggestion.badgeLabel ?? defaultBadgeLabel,
+                style: const TextStyle(
                   color: Colors.white70,
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
@@ -162,35 +197,80 @@ class DashboardScreen extends ConsumerWidget {
             suggestion.description,
             style: const TextStyle(color: Colors.white70, fontSize: 14),
           ),
+          if (suggestion.quote != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.format_quote, color: Colors.amberAccent, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '“${suggestion.quote!}”',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontStyle: FontStyle.italic,
+                            fontSize: 13,
+                            height: 1.35,
+                          ),
+                        ),
+                        if (suggestion.quoteAuthor != null && suggestion.quoteAuthor!.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            '— ${suggestion.quoteAuthor!}',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.8),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
-          Row(
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               ElevatedButton.icon(
-                icon: Icon(
-                  suggestion.hasFreeTime ? Icons.play_arrow : Icons.calendar_today,
-                  size: 18,
-                ),
+                icon: Icon(primaryIcon, size: 18),
                 label: Text(suggestion.actionLabel),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
-                  foregroundColor: const Color(0xFF2563EB),
+                  foregroundColor: btnColor,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 ),
                 onPressed: () {
-                  if (suggestion.hasFreeTime) {
+                  if (isCalendarAction || !suggestion.hasFreeTime) {
+                    context.go('/calendar');
+                  } else {
                     FocusTimerDialog.show(
                       context,
                       title: suggestion.title,
                       category: suggestion.category,
                       defaultMinutes: 25,
                     );
-                  } else {
-                    context.go('/calendar');
                   }
                 },
               ),
-              const SizedBox(width: 12),
               if (suggestion.habit != null) ...[
                 OutlinedButton.icon(
                   icon: const Icon(Icons.check_circle_outline, color: Colors.white, size: 16),
@@ -204,18 +284,18 @@ class DashboardScreen extends ConsumerWidget {
                     LogHabitDialog.show(context, suggestion.habit!);
                   },
                 ),
-                const SizedBox(width: 12),
               ],
-              OutlinedButton.icon(
-                icon: const Icon(Icons.calendar_month, color: Colors.white, size: 16),
-                label: const Text('View Calendar', style: TextStyle(color: Colors.white)),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Colors.white54),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              if (!isCalendarAction)
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.calendar_month, color: Colors.white, size: 16),
+                  label: const Text('View Calendar', style: TextStyle(color: Colors.white)),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.white54),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                  onPressed: () => context.go('/calendar'),
                 ),
-                onPressed: () => context.go('/calendar'),
-              ),
             ],
           ),
         ],

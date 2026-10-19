@@ -16,6 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
+import 'package:kairos/services/settings_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -32,7 +33,7 @@ void main() {
     await db.close();
   });
 
-  group('Hero Card Smart Suggestion Prioritization', () {
+  group('Hero Card Smart Suggestion Prioritization (Daytime)', () {
     test('prioritizes overdue task over daily habit and distant tasks', () async {
       final now = DateTime.now();
 
@@ -60,12 +61,19 @@ void main() {
         ),
       );
 
+      final daytimeOffset = (14 - DateTime.now().toUtc().hour) * 60;
       final container = ProviderContainer(
         overrides: [
           appDatabaseProvider.overrideWithValue(db),
           eventDaoProvider.overrideWithValue(db.eventDao),
           taskDaoProvider.overrideWithValue(db.taskDao),
           habitDaoProvider.overrideWithValue(db.habitDao),
+          settingsNotifierProvider.overrideWith((ref) => SettingsNotifier.withState(
+            SettingsState(
+              timezoneMode: 'manual',
+              manualTimezoneOffsetMinutes: daytimeOffset,
+            ),
+          )),
         ],
       );
       addTearDown(container.dispose);
@@ -102,12 +110,19 @@ void main() {
         ),
       );
 
+      final daytimeOffset = (14 - DateTime.now().toUtc().hour) * 60;
       final container = ProviderContainer(
         overrides: [
           appDatabaseProvider.overrideWithValue(db),
           eventDaoProvider.overrideWithValue(db.eventDao),
           taskDaoProvider.overrideWithValue(db.taskDao),
           habitDaoProvider.overrideWithValue(db.habitDao),
+          settingsNotifierProvider.overrideWith((ref) => SettingsNotifier.withState(
+            SettingsState(
+              timezoneMode: 'manual',
+              manualTimezoneOffsetMinutes: daytimeOffset,
+            ),
+          )),
         ],
       );
       addTearDown(container.dispose);
@@ -163,12 +178,19 @@ void main() {
         ),
       );
 
+      final daytimeOffset = (14 - DateTime.now().toUtc().hour) * 60;
       final container = ProviderContainer(
         overrides: [
           appDatabaseProvider.overrideWithValue(db),
           eventDaoProvider.overrideWithValue(db.eventDao),
           taskDaoProvider.overrideWithValue(db.taskDao),
           habitDaoProvider.overrideWithValue(db.habitDao),
+          settingsNotifierProvider.overrideWith((ref) => SettingsNotifier.withState(
+            SettingsState(
+              timezoneMode: 'manual',
+              manualTimezoneOffsetMinutes: daytimeOffset,
+            ),
+          )),
         ],
       );
       addTearDown(container.dispose);
@@ -183,6 +205,111 @@ void main() {
       // Task due in 2 hours should take precedence over habit due tonight
       expect(suggestion.title, contains('Math Homework Submission'));
       expect(suggestion.description, contains('Due in 2h'));
+    });
+  });
+
+  group('Hero Card Time-of-Day Modes (Night Rewind & Morning Kickoff)', () {
+    test('night mode (after 10:00 PM) shows Rewind and evening quote when free', () async {
+      final nightOffset = (23 - DateTime.now().toUtc().hour) * 60;
+      final container = ProviderContainer(
+        overrides: [
+          appDatabaseProvider.overrideWithValue(db),
+          eventDaoProvider.overrideWithValue(db.eventDao),
+          taskDaoProvider.overrideWithValue(db.taskDao),
+          habitDaoProvider.overrideWithValue(db.habitDao),
+          settingsNotifierProvider.overrideWith((ref) => SettingsNotifier.withState(
+            SettingsState(
+              timezoneMode: 'manual',
+              manualTimezoneOffsetMinutes: nightOffset,
+            ),
+          )),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(todayEventsProvider.future);
+      await container.read(incompleteTasksStreamProvider.future);
+      await container.read(activeHabitsProvider.future);
+
+      final suggestion = container.read(smartSuggestionProvider);
+
+      expect(suggestion.period, equals(SmartSuggestionPeriod.night));
+      expect(suggestion.badgeLabel, equals('REWIND & WIND DOWN'));
+      expect(suggestion.title, contains('Time to Rewind & Recharge'));
+      expect(suggestion.quote, isNotNull);
+      expect(suggestion.quoteAuthor, isNotNull);
+      expect(suggestion.actionLabel, equals('Review Tomorrow\'s Agenda'));
+    });
+
+    test('morning mode (4:00 AM - 9:00 AM) shows Rise & Shine with morning quote', () async {
+      final morningOffset = (7 - DateTime.now().toUtc().hour) * 60;
+      final container = ProviderContainer(
+        overrides: [
+          appDatabaseProvider.overrideWithValue(db),
+          eventDaoProvider.overrideWithValue(db.eventDao),
+          taskDaoProvider.overrideWithValue(db.taskDao),
+          habitDaoProvider.overrideWithValue(db.habitDao),
+          settingsNotifierProvider.overrideWith((ref) => SettingsNotifier.withState(
+            SettingsState(
+              timezoneMode: 'manual',
+              manualTimezoneOffsetMinutes: morningOffset,
+            ),
+          )),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(todayEventsProvider.future);
+      await container.read(incompleteTasksStreamProvider.future);
+      await container.read(activeHabitsProvider.future);
+
+      final suggestion = container.read(smartSuggestionProvider);
+
+      expect(suggestion.period, equals(SmartSuggestionPeriod.morning));
+      expect(suggestion.badgeLabel, equals('GET READY FOR THE DAY'));
+      expect(suggestion.title, contains('Rise & Shine'));
+      expect(suggestion.quote, isNotNull);
+      expect(suggestion.quoteAuthor, isNotNull);
+      expect(suggestion.actionLabel, equals('View Today\'s Agenda'));
+    });
+
+    test('night mode prioritizes uncompleted daily habit as calming rewind', () async {
+      final nightOffset = (23 - DateTime.now().toUtc().hour) * 60;
+
+      await db.habitDao.insertHabit(
+        HabitsCompanion.insert(
+          title: 'Night Meditation',
+          targetFrequencyPerWeek: const drift.Value(7),
+        ),
+      );
+
+      final container = ProviderContainer(
+        overrides: [
+          appDatabaseProvider.overrideWithValue(db),
+          eventDaoProvider.overrideWithValue(db.eventDao),
+          taskDaoProvider.overrideWithValue(db.taskDao),
+          habitDaoProvider.overrideWithValue(db.habitDao),
+          settingsNotifierProvider.overrideWith((ref) => SettingsNotifier.withState(
+            SettingsState(
+              timezoneMode: 'manual',
+              manualTimezoneOffsetMinutes: nightOffset,
+            ),
+          )),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(todayEventsProvider.future);
+      await container.read(incompleteTasksStreamProvider.future);
+      await container.read(activeHabitsProvider.future);
+      await container.read(todayHabitCompletionsProvider.future);
+
+      final suggestion = container.read(smartSuggestionProvider);
+
+      expect(suggestion.period, equals(SmartSuggestionPeriod.night));
+      expect(suggestion.badgeLabel, equals('REWIND & WIND DOWN'));
+      expect(suggestion.title, contains('Rewind: Night Meditation'));
+      expect(suggestion.quote, isNotNull);
     });
   });
 
