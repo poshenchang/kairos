@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
+import 'package:kairos/services/settings_service.dart';
+import 'package:kairos/services/timezone_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 
 class EditTaskDialog extends ConsumerStatefulWidget {
@@ -53,9 +55,10 @@ class _EditTaskDialogState extends ConsumerState<EditTaskDialog> {
     _titleController = TextEditingController(text: t.title);
     _descController = TextEditingController(text: t.description ?? '');
 
-    final localDue = t.dueDate.toLocal();
-    _dueDate = DateTime(localDue.year, localDue.month, localDue.day);
-    _dueTime = TimeOfDay(hour: localDue.hour, minute: localDue.minute);
+    final settings = ref.read(settingsNotifierProvider);
+    final activeDue = TimezoneService.instance.toActiveTime(t.dueDate, settings);
+    _dueDate = DateTime(activeDue.year, activeDue.month, activeDue.day);
+    _dueTime = TimeOfDay(hour: activeDue.hour, minute: activeDue.minute);
 
     _selectedCategory = t.category;
     _selectedPriority = t.priority;
@@ -108,13 +111,16 @@ class _EditTaskDialogState extends ConsumerState<EditTaskDialog> {
   Future<void> _updateTask() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final dueDateTime = DateTime(
+    final activeDue = DateTime(
       _dueDate.year,
       _dueDate.month,
       _dueDate.day,
       _dueTime.hour,
       _dueTime.minute,
     );
+
+    final settings = ref.read(settingsNotifierProvider);
+    final dueDateTime = TimezoneService.instance.fromActiveTime(activeDue, settings);
 
     String? rrule;
     if (_isRecurring) {

@@ -11,6 +11,7 @@ import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/habit_suggestion_service.dart';
 import 'package:kairos/services/notification_service.dart';
 import 'package:kairos/services/settings_service.dart';
+import 'package:kairos/services/timezone_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/widgets/add_event_dialog.dart';
 import 'package:kairos/ui/widgets/add_task_dialog.dart';
@@ -27,7 +28,8 @@ class DashboardScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final now = DateTime.now();
+    final settings = ref.watch(settingsNotifierProvider);
+    final now = TimezoneService.instance.activeNow(settings);
     final suggestion = ref.watch(smartSuggestionProvider);
     final todayEventsAsync = ref.watch(todayEventsProvider);
     final dashboardTasksAsync = ref.watch(dashboardTasksProvider);
@@ -226,6 +228,9 @@ class DashboardScreen extends ConsumerWidget {
     WidgetRef ref,
     AsyncValue<List<Task>> tasksAsync,
   ) {
+    final settings = ref.watch(settingsNotifierProvider);
+    final now = TimezoneService.instance.activeNow(settings);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -262,17 +267,16 @@ class DashboardScreen extends ConsumerWidget {
               );
             }
 
-            final now = DateTime.now();
-
             return Column(
               children: tasks.take(5).map((task) {
-                final isOverdue = task.dueDate.isBefore(now);
-                final hoursUntil = task.dueDate.difference(now).inHours;
+                final due = TimezoneService.instance.toActiveTime(task.dueDate, settings);
+                final isOverdue = due.isBefore(now);
+                final hoursUntil = due.difference(now).inHours;
                 final isUrgent = hoursUntil <= 24;
                 final isWarning = hoursUntil <= 72;
 
                 Color badgeColor = Colors.grey;
-                String statusText = DateFormat('MMM d, HH:mm').format(task.dueDate);
+                String statusText = DateFormat('MMM d, HH:mm').format(due);
 
                 if (isOverdue) {
                   badgeColor = Colors.red;
@@ -360,6 +364,8 @@ class DashboardScreen extends ConsumerWidget {
     AsyncValue<List<Event>> eventsAsync,
     List<Category> categories,
   ) {
+    final settings = ref.watch(settingsNotifierProvider);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -475,8 +481,8 @@ class DashboardScreen extends ConsumerWidget {
                           children: [
                             Text(
                               isReminder
-                                  ? 'Reminder at ${DateFormat('HH:mm').format(event.startTime)}'
-                                  : '${DateFormat('HH:mm').format(event.startTime)} – ${DateFormat('HH:mm').format(event.endTime)}',
+                                  ? 'Reminder at ${DateFormat('HH:mm').format(TimezoneService.instance.toActiveTime(event.startTime, settings))}'
+                                  : '${DateFormat('HH:mm').format(TimezoneService.instance.toActiveTime(event.startTime, settings))} – ${DateFormat('HH:mm').format(TimezoneService.instance.toActiveTime(event.endTime, settings))}',
                               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
                             ),
                             const SizedBox(width: 8),

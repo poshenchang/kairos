@@ -62,27 +62,19 @@ class TimezoneService {
   /// Returns the current active timezone offset duration.
   /// If [SettingsState.timezoneMode] is 'manual', uses the user-configured offset.
   /// Otherwise auto-detects system timezone offset.
-  Duration getActiveOffset(SettingsState settings) {
-    if (settings.timezoneMode == 'manual') {
+  Duration getActiveOffset([SettingsState? settings]) {
+    if (settings != null && settings.timezoneMode == 'manual') {
       return Duration(minutes: settings.manualTimezoneOffsetMinutes);
     }
     return DateTime.now().timeZoneOffset;
   }
 
-  /// Returns the current time adjusted for the configured timezone settings.
-  /// If [SettingsState.timezoneMode] is 'manual', adjusts from system clock
-  /// to the configured manual timezone offset.
-  DateTime now([SettingsState? settings]) {
-    final sysNow = DateTime.now();
+  /// Formatted label of the active timezone (either manual or auto-detected).
+  String getActiveTimezoneLabel([SettingsState? settings]) {
     if (settings != null && settings.timezoneMode == 'manual') {
-      final sysOffsetMinutes = sysNow.timeZoneOffset.inMinutes;
-      final manualOffsetMinutes = settings.manualTimezoneOffsetMinutes;
-      final diffMinutes = manualOffsetMinutes - sysOffsetMinutes;
-      if (diffMinutes != 0) {
-        return sysNow.add(Duration(minutes: diffMinutes));
-      }
+      return settings.manualTimezoneName;
     }
-    return sysNow;
+    return getDetectedTimezoneLabel();
   }
 
   /// Formatted label of the detected system timezone (e.g. "UTC+08:00 (CST)")
@@ -97,59 +89,67 @@ class TimezoneService {
     return 'UTC$sign$hours:$minutes${tzName.isNotEmpty ? ' ($tzName)' : ''}';
   }
 
-  /// Formats a DateTime as a wall-clock ISO 8601 string without trailing timezone distortion:
-  /// e.g. "2026-10-19T09:00:00.000"
-  String formatForRemoteSync(DateTime dt) {
-    final year = dt.year.toString().padLeft(4, '0');
-    final month = dt.month.toString().padLeft(2, '0');
-    final day = dt.day.toString().padLeft(2, '0');
-    final hour = dt.hour.toString().padLeft(2, '0');
-    final minute = dt.minute.toString().padLeft(2, '0');
-    final second = dt.second.toString().padLeft(2, '0');
-    final millisecond = dt.millisecond.toString().padLeft(3, '0');
-    return '$year-$month-${day}T$hour:$minute:$second.$millisecond';
+  /// Converts a UTC [DateTime] into a display [DateTime] matching the active timezone.
+  /// The resulting [DateTime] has year, month, day, hour, minute reflecting the user's active timezone.
+  DateTime toActiveTime(DateTime dt, [SettingsState? settings]) {
+    final utc = dt.isUtc ? dt : dt.toUtc();
+    final offset = getActiveOffset(settings);
+    final active = utc.add(offset);
+    return DateTime(
+      active.year,
+      active.month,
+      active.day,
+      active.hour,
+      active.minute,
+      active.second,
+      active.millisecond,
+    );
   }
 
-  /// Parses a remote ISO 8601 timestamp from Supabase into a local wall-clock DateTime.
-  /// Ensures "2026-10-19T09:00:00+00:00" is parsed as 09:00:00 local time,
-  /// preventing +8 hour unintended timezone shift when refetched.
+  /// Converts a local wall-clock [DateTime] (picked in the UI in the active timezone)
+  /// into an absolute UTC [DateTime] for database and cloud storage.
+  DateTime fromActiveTime(DateTime wallClock, [SettingsState? settings]) {
+    final offset = getActiveOffset(settings);
+    return DateTime.utc(
+      wallClock.year,
+      wallClock.month,
+      wallClock.day,
+      wallClock.hour,
+      wallClock.minute,
+      wallClock.second,
+      wallClock.millisecond,
+    ).subtract(offset);
+  }
+
+  /// Returns the current time in the active timezone.
+  DateTime activeNow([SettingsState? settings]) {
+    return toActiveTime(DateTime.now().toUtc(), settings);
+  }
+
+  /// Formats a [DateTime] as an absolute UTC ISO 8601 string for cloud storage in Supabase:
+  /// e.g. "2026-10-19T01:00:00.000Z"
+  String formatForRemoteSync(DateTime dt) {
+    final utc = dt.isUtc ? dt : dt.toUtc();
+    return utc.toIso8601String();
+  }
+
+  /// Parses a remote ISO 8601 timestamp from Supabase into a ground-truth UTC [DateTime].
   DateTime parseRemoteTimestamp(String raw) {
     final str = raw.trim();
-    if (str.isEmpty) return DateTime.now();
+    if (str.isEmpty) return DateTime.now().toUtc();
 
     // If date-only format (e.g. "2026-10-19")
     if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(str)) {
       final parts = str.split('-').map(int.parse).toList();
-      return DateTime(parts[0], parts[1], parts[2]);
+      return DateTime.utc(parts[0], parts[1], parts[2]);
     }
 
-    // Strip timezone suffix: 'Z', '+00:00', '+08:00', '-05:00', etc.
-    final stripped = str
-        .replaceAll('Z', '')
-        .replaceAll(RegExp(r'[+-]\d{2}(:\d{2})?$'), '')
-        .trim();
-
-    // Split into date and time parts
-    final tParts = stripped.split(RegExp(r'[T ]'));
-    if (tParts.length >= 2) {
-      final dateParts = tParts[0].split('-').map(int.parse).toList();
-      final timeSubparts = tParts[1].split(':');
-      final hour = int.parse(timeSubparts[0]);
-      final minute = int.parse(timeSubparts[1]);
-      int second = 0;
-      int millisecond = 0;
-      if (timeSubparts.length > 2) {
-        final secParts = timeSubparts[2].split('.');
-        second = int.parse(secParts[0]);
-        if (secParts.length > 1) {
-          final msStr = secParts[1].padRight(3, '0').substring(0, 3);
-          millisecond = int.parse(msStr);
-        }
-      }
-      return DateTime(dateParts[0], dateParts[1], dateParts[2], hour, minute, second, millisecond);
+    try {
+      final parsed = DateTime.parse(str);
+      return parsed.toUtc();
+    } catch (_) {
+      return DateTime.now().toUtc();
     }
-
-    return DateTime.parse(str).toLocal();
   }
 
   /// Re-aligns all existing events and tasks by shifting their timestamps by [offset].

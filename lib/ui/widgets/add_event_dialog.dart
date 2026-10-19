@@ -11,6 +11,8 @@ import 'package:kairos/data/repositories/event_repository.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/form_defaults_service.dart';
 import 'package:kairos/services/notification_service.dart';
+import 'package:kairos/services/settings_service.dart';
+import 'package:kairos/services/timezone_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 
 class AddEventDialog extends ConsumerStatefulWidget {
@@ -122,7 +124,7 @@ class _AddEventDialogState extends ConsumerState<AddEventDialog> {
   Future<void> _saveEvent() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final startDateTime = DateTime(
+    final activeStart = DateTime(
       _selectedDate.year,
       _selectedDate.month,
       _selectedDate.day,
@@ -130,8 +132,8 @@ class _AddEventDialogState extends ConsumerState<AddEventDialog> {
       _startTime.minute,
     );
 
-    final endDateTime = _isReminder
-        ? startDateTime
+    final activeEnd = _isReminder
+        ? activeStart
         : DateTime(
             _selectedDate.year,
             _selectedDate.month,
@@ -140,14 +142,21 @@ class _AddEventDialogState extends ConsumerState<AddEventDialog> {
             _endTime.minute,
           );
 
+    final settings = ref.read(settingsNotifierProvider);
+    final startDateTime = TimezoneService.instance.fromActiveTime(activeStart, settings);
+    final endDateTime = TimezoneService.instance.fromActiveTime(activeEnd, settings);
+
     // Conflict detection for time-block events
     if (!_isReminder) {
       final repo = ref.read(eventRepositoryProvider);
       final conflicts = await repo.getConflictingEvents(startDateTime, endDateTime);
       if (conflicts.isNotEmpty && mounted) {
         final conflictList = conflicts
-            .map((e) =>
-                '• ${e.title} (${DateFormat('h:mm a').format(e.startTime)} – ${DateFormat('h:mm a').format(e.endTime)})')
+            .map((e) {
+              final cStart = TimezoneService.instance.toActiveTime(e.startTime, settings);
+              final cEnd = TimezoneService.instance.toActiveTime(e.endTime, settings);
+              return '• ${e.title} (${DateFormat('h:mm a').format(cStart)} – ${DateFormat('h:mm a').format(cEnd)})';
+            })
             .join('\n');
 
         final proceed = await showDialog<bool>(

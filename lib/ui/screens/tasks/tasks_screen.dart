@@ -11,6 +11,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
+import 'package:kairos/services/settings_service.dart';
+import 'package:kairos/services/timezone_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/widgets/add_task_dialog.dart';
 import 'package:kairos/ui/widgets/edit_task_dialog.dart';
@@ -127,7 +129,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                   );
                 }
 
-                final now = DateTime.now();
+                final settings = ref.watch(settingsNotifierProvider);
+                final now = TimezoneService.instance.activeNow(settings);
 
                 return ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -184,8 +187,10 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
   @override
   Widget build(BuildContext context) {
     final task = widget.task;
-    final isOverdue = task.dueDate.isBefore(widget.now) && !task.isCompleted;
-    final hoursUntil = task.dueDate.difference(widget.now).inHours;
+    final settings = ref.watch(settingsNotifierProvider);
+    final activeDue = TimezoneService.instance.toActiveTime(task.dueDate, settings);
+    final isOverdue = activeDue.isBefore(widget.now) && !task.isCompleted;
+    final hoursUntil = activeDue.difference(widget.now).inHours;
     final isUrgent = hoursUntil <= 24 && !task.isCompleted;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
@@ -249,7 +254,7 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            DateFormat('MMM d, HH:mm').format(task.dueDate),
+                            DateFormat('MMM d, HH:mm').format(activeDue),
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: (isOverdue || isUrgent) ? FontWeight.bold : FontWeight.normal,

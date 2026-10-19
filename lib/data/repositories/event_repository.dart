@@ -215,14 +215,18 @@ class EventRepository {
     DateTime end, {
     int? excludeEventId,
   }) async {
-    final dayStart = DateTime(start.year, start.month, start.day);
-    final dayEnd = dayStart.add(const Duration(days: 1));
-    final events = await getExpandedEventsInRange(dayStart, dayEnd);
+    final startUtc = start.isUtc ? start : start.toUtc();
+    final endUtc = end.isUtc ? end : end.toUtc();
+    final queryStart = startUtc.subtract(const Duration(hours: 24));
+    final queryEnd = endUtc.add(const Duration(hours: 24));
+    final events = await getExpandedEventsInRange(queryStart, queryEnd);
     return events.where((e) {
       if (excludeEventId != null && e.id == excludeEventId) return false;
       if (e.isDeleted) return false;
       if (e.eventType == 'reminder') return false;
-      return start.isBefore(e.endTime) && end.isAfter(e.startTime);
+      final eStart = e.startTime.isUtc ? e.startTime : e.startTime.toUtc();
+      final eEnd = e.endTime.isUtc ? e.endTime : e.endTime.toUtc();
+      return startUtc.isBefore(eEnd) && endUtc.isAfter(eStart);
     }).toList();
   }
 

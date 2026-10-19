@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
+import 'package:kairos/services/settings_service.dart';
+import 'package:kairos/services/timezone_service.dart';
 
 // ── Categories ──────────────────────────────────────────────────────────────
 
@@ -24,10 +26,13 @@ final allEventsStreamProvider = StreamProvider<List<Event>>((ref) {
 
 final todayEventsProvider = FutureProvider<List<Event>>((ref) async {
   final repo = ref.watch(eventRepositoryProvider);
-  final now = DateTime.now();
-  final start = DateTime(now.year, now.month, now.day);
-  final end = start.add(const Duration(days: 1));
-  return repo.getExpandedEventsInRange(start, end);
+  final settings = ref.read(settingsNotifierProvider);
+  final now = TimezoneService.instance.activeNow(settings);
+  final startWall = DateTime(now.year, now.month, now.day);
+  final endWall = startWall.add(const Duration(days: 1));
+  final startUtc = TimezoneService.instance.fromActiveTime(startWall, settings);
+  final endUtc = TimezoneService.instance.fromActiveTime(endWall, settings);
+  return repo.getExpandedEventsInRange(startUtc, endUtc);
 });
 
 final selectedDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
@@ -35,16 +40,22 @@ final selectedDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
 final selectedDateEventsProvider = FutureProvider<List<Event>>((ref) async {
   final date = ref.watch(selectedDateProvider);
   final repo = ref.watch(eventRepositoryProvider);
-  final start = DateTime(date.year, date.month, date.day);
-  final end = start.add(const Duration(days: 1));
-  return repo.getExpandedEventsInRange(start, end);
+  final settings = ref.read(settingsNotifierProvider);
+  final startWall = DateTime(date.year, date.month, date.day);
+  final endWall = startWall.add(const Duration(days: 1));
+  final startUtc = TimezoneService.instance.fromActiveTime(startWall, settings);
+  final endUtc = TimezoneService.instance.fromActiveTime(endWall, settings);
+  return repo.getExpandedEventsInRange(startUtc, endUtc);
 });
 
 final weekEventsProvider = FutureProvider.family<List<Event>, DateTime>((ref, weekStart) async {
   final repo = ref.watch(eventRepositoryProvider);
-  final start = DateTime(weekStart.year, weekStart.month, weekStart.day);
-  final end = start.add(const Duration(days: 7));
-  return repo.getExpandedEventsInRange(start, end);
+  final settings = ref.read(settingsNotifierProvider);
+  final startWall = DateTime(weekStart.year, weekStart.month, weekStart.day);
+  final endWall = startWall.add(const Duration(days: 7));
+  final startUtc = TimezoneService.instance.fromActiveTime(startWall, settings);
+  final endUtc = TimezoneService.instance.fromActiveTime(endWall, settings);
+  return repo.getExpandedEventsInRange(startUtc, endUtc);
 });
 
 final holidaysForDateProvider = FutureProvider.family<List<Holiday>, DateTime>((ref, date) async {
@@ -140,7 +151,8 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
   final habitCountsAsync = ref.watch(weeklyHabitCompletionsProvider);
   final todayHabitCountsAsync = ref.watch(todayHabitCompletionsProvider);
 
-  final now = DateTime.now();
+  final settings = ref.watch(settingsNotifierProvider);
+  final now = TimezoneService.instance.activeNow(settings);
   final todayEvents = todayEventsAsync.value ?? [];
   final tasks = tasksAsync.value ?? [];
   final habits = habitsAsync.value ?? [];
@@ -150,29 +162,32 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
   // 1. Check if user is CURRENTLY in an event right now according to the timetable
   final currentEvents = todayEvents.where((e) {
     if (e.isDeleted || e.eventType == 'reminder') return false;
-    final start = e.startTime.toLocal();
-    final end = e.endTime.toLocal();
+    final start = TimezoneService.instance.toActiveTime(e.startTime, settings);
+    final end = TimezoneService.instance.toActiveTime(e.endTime, settings);
     return !now.isBefore(start) && now.isBefore(end);
   }).toList()
     ..sort((a, b) => b.endTime.compareTo(a.endTime));
 
   if (currentEvents.isNotEmpty) {
     final currentEvent = currentEvents.first;
-    final remainingMinutes = currentEvent.endTime.toLocal().difference(now).inMinutes;
-    final endFormatted = DateFormat('h:mm a').format(currentEvent.endTime.toLocal());
+    final currentEnd = TimezoneService.instance.toActiveTime(currentEvent.endTime, settings);
+    final remainingMinutes = currentEnd.difference(now).inMinutes;
+    final endFormatted = DateFormat('h:mm a').format(currentEnd);
 
     // Check what to do after current event ends
     final afterEvents = todayEvents.where((e) {
       if (e.isDeleted || e.eventType == 'reminder') return false;
-      return !e.startTime.toLocal().isBefore(currentEvent.endTime.toLocal());
+      final start = TimezoneService.instance.toActiveTime(e.startTime, settings);
+      return !start.isBefore(currentEnd);
     }).toList()
       ..sort((a, b) => a.startTime.compareTo(b.startTime));
 
     final nextAfter = afterEvents.isNotEmpty ? afterEvents.first : null;
     String whatNextText;
     if (nextAfter != null) {
-      final gap = nextAfter.startTime.toLocal().difference(currentEvent.endTime.toLocal()).inMinutes;
-      final startFmt = DateFormat('h:mm a').format(nextAfter.startTime.toLocal());
+      final nextStart = TimezoneService.instance.toActiveTime(nextAfter.startTime, settings);
+      final gap = nextStart.difference(currentEnd).inMinutes;
+      final startFmt = DateFormat('h:mm a').format(nextStart);
       if (gap <= 5) {
         whatNextText = 'Followed immediately by "${nextAfter.title}" at $startFmt.';
       } else {
@@ -194,20 +209,27 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
 
   // 2. User is NOT currently in an event. Look for the next upcoming event today.
   final upcomingEvents = todayEvents
-      .where((e) => !e.isDeleted && e.eventType != 'reminder' && e.startTime.toLocal().isAfter(now))
+      .where((e) {
+        if (e.isDeleted || e.eventType == 'reminder') return false;
+        final start = TimezoneService.instance.toActiveTime(e.startTime, settings);
+        return start.isAfter(now);
+      })
       .toList()
     ..sort((a, b) => a.startTime.compareTo(b.startTime));
 
   final nextEvent = upcomingEvents.isNotEmpty ? upcomingEvents.first : null;
-  final freeMinutes = nextEvent != null
-      ? nextEvent.startTime.toLocal().difference(now).inMinutes
+  final nextEventStart = nextEvent != null
+      ? TimezoneService.instance.toActiveTime(nextEvent.startTime, settings)
+      : null;
+  final freeMinutes = nextEventStart != null
+      ? nextEventStart.difference(now).inMinutes
       : 120;
 
   if (nextEvent != null && freeMinutes < 15) {
     return SmartSuggestion(
       freeDuration: Duration(minutes: freeMinutes.clamp(0, 15)),
       title: 'Upcoming: ${nextEvent.title}',
-      description: 'Starts in $freeMinutes minutes (${DateFormat('h:mm a').format(nextEvent.startTime.toLocal())}). Prepare your materials.',
+      description: 'Starts in $freeMinutes minutes (${DateFormat('h:mm a').format(nextEventStart!)}). Prepare your materials.',
       actionLabel: 'View Event',
       category: nextEvent.category,
       hasFreeTime: false,
@@ -222,7 +244,7 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
 
   // A. Check incomplete tasks
   for (final task in tasks) {
-    final due = task.dueDate.toLocal();
+    final due = TimezoneService.instance.toActiveTime(task.dueDate, settings);
     if (due.isBefore(now)) {
       // Overdue task
       final diff = now.difference(due);
@@ -255,17 +277,22 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
 
       int rank;
       String urgencyText;
-      if (diff.inHours < 24) {
-        rank = 2; // Due within 24 hours
+      if (diff.inHours < 3) {
+        rank = 2; // Imminent task due within 3 hours
+        urgencyText = hoursUntil == 0
+            ? 'Due in ${minutesUntil}m (${DateFormat('h:mm a').format(due)})'
+            : 'Due in ${hoursUntil}h (${DateFormat('h:mm a').format(due)})';
+      } else if (diff.inHours < 24) {
+        rank = 3; // Due within 24 hours
         urgencyText = hoursUntil == 0
             ? 'Due in ${minutesUntil}m (${DateFormat('h:mm a').format(due)})'
             : 'Due in ${hoursUntil}h (${DateFormat('h:mm a').format(due)})';
       } else if (diff.inHours < 72) {
         final days = (diff.inHours / 24).round();
-        rank = 4; // Due within 3 days
+        rank = 5; // Due within 3 days
         urgencyText = 'Due in ${days}d (${DateFormat('EEE, h:mm a').format(due)})';
       } else {
-        rank = 6; // Due later
+        rank = 7; // Due later
         urgencyText = 'Due ${DateFormat('MMM d').format(due)}';
       }
 
@@ -308,8 +335,9 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
       // Uncompleted daily habit! Effective deadline is end of today.
       Event? scheduledLater;
       for (final e in todayEvents) {
+        final start = TimezoneService.instance.toActiveTime(e.startTime, settings);
         if (!e.isDeleted &&
-            e.startTime.toLocal().isAfter(now) &&
+            start.isAfter(now) &&
             e.autoScheduleSource != null &&
             e.autoScheduleSource!.contains('habit:${habit.id}')) {
           scheduledLater = e;
@@ -320,11 +348,12 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
       final String desc;
       final int rank;
       if (scheduledLater != null) {
-        rank = 3;
-        final timeStr = DateFormat('h:mm a').format(scheduledLater.startTime.toLocal());
+        rank = 4;
+        final start = TimezoneService.instance.toActiveTime(scheduledLater.startTime, settings);
+        final timeStr = DateFormat('h:mm a').format(start);
         desc = 'You have $freeText free. Daily habit scheduled for $timeStr, or get ahead now.';
       } else {
-        rank = 2; // Unscheduled daily habit is urgent for today
+        rank = 3; // Unscheduled daily habit is urgent for today
         desc = 'You have $freeText free. Daily habit not yet completed today.';
       }
 
@@ -348,7 +377,7 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
       candidates.add(
         _CandidateItem(
           effectiveDeadline: weekEnd,
-          priorityRank: 5,
+          priorityRank: 6,
           suggestion: SmartSuggestion(
             freeDuration: Duration(minutes: freeMinutes),
             title: 'Habit: ${habit.title}',
@@ -365,9 +394,9 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
 
   if (candidates.isNotEmpty) {
     candidates.sort((a, b) {
-      final cmp = a.effectiveDeadline.compareTo(b.effectiveDeadline);
-      if (cmp != 0) return cmp;
-      return a.priorityRank.compareTo(b.priorityRank);
+      final rankCmp = a.priorityRank.compareTo(b.priorityRank);
+      if (rankCmp != 0) return rankCmp;
+      return a.effectiveDeadline.compareTo(b.effectiveDeadline);
     });
 
     return candidates.first.suggestion;

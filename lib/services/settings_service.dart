@@ -83,45 +83,49 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
   }
 
   Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
+    try {
+      final prefs = await SharedPreferences.getInstance();
 
-    final themeModeStr = prefs.getString(_kThemeModeKey);
-    final themeMode = switch (themeModeStr) {
-      'light' => ThemeMode.light,
-      'dark' => ThemeMode.dark,
-      _ => ThemeMode.system,
-    };
+      final themeModeStr = prefs.getString(_kThemeModeKey);
+      final themeMode = switch (themeModeStr) {
+        'light' => ThemeMode.light,
+        'dark' => ThemeMode.dark,
+        _ => ThemeMode.system,
+      };
 
-    final paletteStr = prefs.getString(_kPaletteIdKey);
-    final palette = AppPaletteId.values.firstWhere(
-      (p) => p.name == paletteStr,
-      orElse: () => AppPaletteId.oceanic,
-    );
+      final paletteStr = prefs.getString(_kPaletteIdKey);
+      final palette = AppPaletteId.values.firstWhere(
+        (p) => p.name == paletteStr,
+        orElse: () => AppPaletteId.oceanic,
+      );
 
-    final notifs = prefs.getBool(_kNotificationsEnabledKey) ?? true;
-    final sunday = prefs.getBool(_kWeekStartsOnSundayKey) ?? true;
-    final viewMode = prefs.getString(_kCalendarViewKey) ?? 'timetable';
-    final suggestHabits = prefs.getBool(_kSuggestHabitsInFreeTimeKey) ?? true;
-    final sbUrl = prefs.getString(_kSupabaseUrlKey) ?? '';
-    final sbKey = prefs.getString(_kSupabasePublishableKey) ?? '';
-    final tzMode = prefs.getString(_kTimezoneModeKey) ?? 'auto';
-    final manualOffset = prefs.getInt(_kManualTimezoneOffsetMinutesKey) ?? 480;
-    final manualName = prefs.getString(_kManualTimezoneNameKey) ??
-        'UTC+08:00 (Taipei, Beijing, Singapore, Perth, HK, CST)';
+      final notifs = prefs.getBool(_kNotificationsEnabledKey) ?? true;
+      final sunday = prefs.getBool(_kWeekStartsOnSundayKey) ?? true;
+      final viewMode = prefs.getString(_kCalendarViewKey) ?? 'timetable';
+      final suggestHabits = prefs.getBool(_kSuggestHabitsInFreeTimeKey) ?? true;
+      final sbUrl = prefs.getString(_kSupabaseUrlKey) ?? '';
+      final sbKey = prefs.getString(_kSupabasePublishableKey) ?? '';
+      final tzMode = prefs.getString(_kTimezoneModeKey) ?? 'auto';
+      final manualOffset = prefs.getInt(_kManualTimezoneOffsetMinutesKey) ?? 480;
+      final manualName = prefs.getString(_kManualTimezoneNameKey) ??
+          'UTC+08:00 (Taipei, Beijing, Singapore, Perth, HK, CST)';
 
-    state = SettingsState(
-      themeMode: themeMode,
-      paletteId: palette,
-      notificationsEnabled: notifs,
-      weekStartsOnSunday: sunday,
-      calendarViewMode: viewMode,
-      suggestHabitsInFreeTime: suggestHabits,
-      supabaseUrl: sbUrl,
-      supabasePublishableKey: sbKey,
-      timezoneMode: tzMode,
-      manualTimezoneOffsetMinutes: manualOffset,
-      manualTimezoneName: manualName,
-    );
+      state = SettingsState(
+        themeMode: themeMode,
+        paletteId: palette,
+        notificationsEnabled: notifs,
+        weekStartsOnSunday: sunday,
+        calendarViewMode: viewMode,
+        suggestHabitsInFreeTime: suggestHabits,
+        supabaseUrl: sbUrl,
+        supabasePublishableKey: sbKey,
+        timezoneMode: tzMode,
+        manualTimezoneOffsetMinutes: manualOffset,
+        manualTimezoneName: manualName,
+      );
+    } catch (_) {
+      // SharedPreferences platform channel not available in unit test environments
+    }
   }
 
   Future<void> setTimezoneConfig({

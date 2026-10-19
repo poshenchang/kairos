@@ -15,6 +15,8 @@ import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/habit_schedule_service.dart';
 import 'package:kairos/services/notification_service.dart';
+import 'package:kairos/services/settings_service.dart';
+import 'package:kairos/services/timezone_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/screens/calendar/widgets/drag_schedule_item.dart';
 import 'package:kairos/ui/widgets/add_event_dialog.dart';
@@ -55,14 +57,17 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
     final completions = completionsAsync.value ?? {};
     final allEvents = allEventsAsync.value ?? [];
 
+    final settings = ref.watch(settingsNotifierProvider);
+
     // Filter upcoming events that require preparation (Exams, Interviews, Presentations)
     // Automatically disappears from sidebar once the exam or interview event ends.
-    final now = DateTime.now();
+    final now = TimezoneService.instance.activeNow(settings);
     final prepEvents = allEvents.where((e) {
+      final activeEnd = TimezoneService.instance.toActiveTime(e.endTime, settings);
       return !e.isDeleted &&
           e.requiresPrep &&
           !e.isAutoScheduled &&
-          e.endTime.isAfter(now);
+          activeEnd.isAfter(now);
     }).toList()
       ..sort((a, b) => a.startTime.compareTo(b.startTime));
 
@@ -349,10 +354,12 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
     final weekStart = DateTime(widget.currentWeekStart.year, widget.currentWeekStart.month, widget.currentWeekStart.day);
     final weekEnd = weekStart.add(const Duration(days: 7));
 
+    final settings = ref.watch(settingsNotifierProvider);
+
     // Scheduled events for this habit this week
     final habitWeekEvents = allEvents.where((e) {
       if (e.isDeleted) return false;
-      final start = e.startTime.toLocal();
+      final start = TimezoneService.instance.toActiveTime(e.startTime, settings);
       if (start.isBefore(weekStart) || !start.isBefore(weekEnd)) return false;
 
       final src = e.autoScheduleSource;
@@ -574,7 +581,7 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
 
     final targetPrep = event.prepMinutes ?? 60;
     final progress = targetPrep > 0 ? (scheduledMinutes / targetPrep).clamp(0.0, 1.0) : 0.0;
-    final eventStart = event.startTime.toLocal();
+    final eventStart = TimezoneService.instance.toActiveTime(event.startTime, ref.watch(settingsNotifierProvider));
     final categoryColor = _getCategoryColor(event.category);
 
     final dragItem = DragScheduleItem(
@@ -846,8 +853,9 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
     bool isDark,
   ) {
     final progress = duration > 0 ? (scheduledMinutes / duration).clamp(0.0, 1.0) : 0.0;
-    final dueDate = task.dueDate.toLocal();
-    final now = DateTime.now();
+    final settings = ref.watch(settingsNotifierProvider);
+    final dueDate = TimezoneService.instance.toActiveTime(task.dueDate, settings);
+    final now = TimezoneService.instance.activeNow(settings);
     final isDueSoon = dueDate.difference(now).inDays <= 1;
 
     return Padding(

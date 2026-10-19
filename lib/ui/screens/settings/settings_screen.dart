@@ -566,6 +566,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ref.read(settingsNotifierProvider.notifier).setTimezoneConfig(
                       mode: mode,
                     );
+                ref.invalidate(todayEventsProvider);
+                ref.invalidate(selectedDateEventsProvider);
+                ref.invalidate(smartSuggestionProvider);
               },
             ),
             const SizedBox(height: 16),
@@ -644,6 +647,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             manualOffsetMinutes: option.offsetMinutes,
                             manualName: option.label,
                           );
+                      ref.invalidate(todayEventsProvider);
+                      ref.invalidate(selectedDateEventsProvider);
+                      ref.invalidate(smartSuggestionProvider);
                     },
                   ),
                 ),

@@ -9,6 +9,8 @@ import 'package:intl/intl.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/form_defaults_service.dart';
+import 'package:kairos/services/settings_service.dart';
+import 'package:kairos/services/timezone_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 
 class AddTaskDialog extends ConsumerStatefulWidget {
@@ -70,13 +72,16 @@ class _AddTaskDialogState extends ConsumerState<AddTaskDialog> {
   Future<void> _saveTask() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final dueDateTime = DateTime(
+    final activeDue = DateTime(
       _selectedDate.year,
       _selectedDate.month,
       _selectedDate.day,
       _selectedTime.hour,
       _selectedTime.minute,
     );
+
+    final settings = ref.read(settingsNotifierProvider);
+    final dueDateTime = TimezoneService.instance.fromActiveTime(activeDue, settings);
 
     String? rrule;
     if (_isRecurring) {

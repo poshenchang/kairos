@@ -11,6 +11,8 @@ import 'package:kairos/data/repositories/event_repository.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/form_defaults_service.dart';
 import 'package:kairos/services/notification_service.dart';
+import 'package:kairos/services/settings_service.dart';
+import 'package:kairos/services/timezone_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 
 class EditEventDialog extends ConsumerStatefulWidget {
@@ -88,11 +90,12 @@ class _EditEventDialogState extends ConsumerState<EditEventDialog> {
     _titleController = TextEditingController(text: e.title);
     _notesController = TextEditingController(text: e.notes ?? '');
 
-    final localStart = e.startTime.toLocal();
-    final localEnd = e.endTime.toLocal();
-    _selectedDate = DateTime(localStart.year, localStart.month, localStart.day);
-    _startTime = TimeOfDay(hour: localStart.hour, minute: localStart.minute);
-    _endTime = TimeOfDay(hour: localEnd.hour, minute: localEnd.minute);
+    final settings = ref.read(settingsNotifierProvider);
+    final activeStart = TimezoneService.instance.toActiveTime(e.startTime, settings);
+    final activeEnd = TimezoneService.instance.toActiveTime(e.endTime, settings);
+    _selectedDate = DateTime(activeStart.year, activeStart.month, activeStart.day);
+    _startTime = TimeOfDay(hour: activeStart.hour, minute: activeStart.minute);
+    _endTime = TimeOfDay(hour: activeEnd.hour, minute: activeEnd.minute);
 
     _isReminder = e.eventType == 'reminder';
     if (e.autoScheduleSource != null) {
@@ -131,12 +134,13 @@ class _EditEventDialogState extends ConsumerState<EditEventDialog> {
     setState(() => _isLoadingBase = true);
     final base = await ref.read(eventDaoProvider).getEventById(widget.event.id);
     if (base != null && mounted) {
-      final localStart = base.startTime.toLocal();
-      final localEnd = base.endTime.toLocal();
+      final settings = ref.read(settingsNotifierProvider);
+      final activeStart = TimezoneService.instance.toActiveTime(base.startTime, settings);
+      final activeEnd = TimezoneService.instance.toActiveTime(base.endTime, settings);
       setState(() {
-        _selectedDate = DateTime(localStart.year, localStart.month, localStart.day);
-        _startTime = TimeOfDay(hour: localStart.hour, minute: localStart.minute);
-        _endTime = TimeOfDay(hour: localEnd.hour, minute: localEnd.minute);
+        _selectedDate = DateTime(activeStart.year, activeStart.month, activeStart.day);
+        _startTime = TimeOfDay(hour: activeStart.hour, minute: activeStart.minute);
+        _endTime = TimeOfDay(hour: activeEnd.hour, minute: activeEnd.minute);
         _isReminder = base.eventType == 'reminder';
         if (base.autoScheduleSource != null) {
           final match = RegExp(r'notify:(\d+)').firstMatch(base.autoScheduleSource!);
@@ -197,7 +201,7 @@ class _EditEventDialogState extends ConsumerState<EditEventDialog> {
   Future<void> _updateEvent() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final startDateTime = DateTime(
+    final activeStart = DateTime(
       _selectedDate.year,
       _selectedDate.month,
       _selectedDate.day,
@@ -205,8 +209,8 @@ class _EditEventDialogState extends ConsumerState<EditEventDialog> {
       _startTime.minute,
     );
 
-    final endDateTime = _isReminder
-        ? startDateTime
+    final activeEnd = _isReminder
+        ? activeStart
         : DateTime(
             _selectedDate.year,
             _selectedDate.month,
@@ -214,6 +218,10 @@ class _EditEventDialogState extends ConsumerState<EditEventDialog> {
             _endTime.hour,
             _endTime.minute,
           );
+
+    final settings = ref.read(settingsNotifierProvider);
+    final startDateTime = TimezoneService.instance.fromActiveTime(activeStart, settings);
+    final endDateTime = TimezoneService.instance.fromActiveTime(activeEnd, settings);
 
     // Conflict detection for time-block events
     if (!_isReminder) {
@@ -225,8 +233,11 @@ class _EditEventDialogState extends ConsumerState<EditEventDialog> {
       );
       if (conflicts.isNotEmpty && mounted) {
         final conflictList = conflicts
-            .map((e) =>
-                '• ${e.title} (${DateFormat('h:mm a').format(e.startTime)} – ${DateFormat('h:mm a').format(e.endTime)})')
+            .map((e) {
+              final cStart = TimezoneService.instance.toActiveTime(e.startTime, settings);
+              final cEnd = TimezoneService.instance.toActiveTime(e.endTime, settings);
+              return '• ${e.title} (${DateFormat('h:mm a').format(cStart)} – ${DateFormat('h:mm a').format(cEnd)})';
+            })
             .join('\n');
 
         final proceed = await showDialog<bool>(

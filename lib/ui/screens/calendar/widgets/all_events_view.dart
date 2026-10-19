@@ -9,6 +9,8 @@ import 'package:intl/intl.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/event_repository.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
+import 'package:kairos/services/settings_service.dart';
+import 'package:kairos/services/timezone_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/widgets/add_event_dialog.dart';
 import 'package:kairos/ui/widgets/category_badge.dart';
@@ -295,8 +297,9 @@ class _AllEventsViewState extends ConsumerState<AllEventsView> {
   }
 
   Widget _buildEventTile(BuildContext context, Event event, bool isDark, List<Category> categories) {
-    final start = event.startTime.toLocal();
-    final end = event.endTime.toLocal();
+    final settings = ref.watch(settingsNotifierProvider);
+    final start = TimezoneService.instance.toActiveTime(event.startTime, settings);
+    final end = TimezoneService.instance.toActiveTime(event.endTime, settings);
     final isReminder = event.eventType == 'reminder';
 
     String timeScheduleText;

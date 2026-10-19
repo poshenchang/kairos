@@ -13,6 +13,8 @@ import 'package:intl/intl.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/notification_service.dart';
+import 'package:kairos/services/settings_service.dart';
+import 'package:kairos/services/timezone_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/screens/calendar/widgets/drag_schedule_item.dart';
 import 'package:kairos/ui/widgets/add_event_dialog.dart';
@@ -191,6 +193,7 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final settings = ref.watch(settingsNotifierProvider);
 
     // Listen for database changes to refresh events automatically
     ref.listen(allEventsStreamProvider, (_, __) {
@@ -202,19 +205,19 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
       builder: (context, snapshot) {
         final allEvents = snapshot.data ?? [];
 
-        // Pre-group events by dateKey (YYYY-MM-DD) for O(1) lookup during lazy rendering
+        // Pre-group events by dateKey (YYYY-MM-DD) in active timezone for O(1) lookup during lazy rendering
         final eventsByDate = <String, List<Event>>{};
         for (final e in allEvents) {
           if (e.eventType == 'reminder') continue; // Reminders don't take up space in the timetable
-          final localStart = e.startTime.toLocal();
-          final dateKey = '${localStart.year}-${localStart.month.toString().padLeft(2, '0')}-${localStart.day.toString().padLeft(2, '0')}';
+          final activeStart = TimezoneService.instance.toActiveTime(e.startTime, settings);
+          final dateKey = '${activeStart.year}-${activeStart.month.toString().padLeft(2, '0')}-${activeStart.day.toString().padLeft(2, '0')}';
           eventsByDate.putIfAbsent(dateKey, () => []).add(e);
         }
 
         return Column(
           children: [
             // Header: Day names & dates (Horizontally synchronized)
-            _buildDaysHeader(context, isDark),
+            _buildDaysHeader(context, isDark, settings),
             const Divider(height: 1),
 
             // Timetable body (Vertical & Horizontal scrollable)
@@ -245,7 +248,7 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                             final dateKey = '${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
                             final dayEvents = eventsByDate[dateKey] ?? const [];
 
-                            return _buildDayColumn(context, day, dayEvents, isSelected, isDark);
+                            return _buildDayColumn(context, day, dayEvents, isSelected, isDark, settings);
                           },
                         ),
                       ),
@@ -260,7 +263,7 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
     );
   }
 
-  Widget _buildDaysHeader(BuildContext context, bool isDark) {
+  Widget _buildDaysHeader(BuildContext context, bool isDark, SettingsState settings) {
     return Container(
       color: isDark ? const Color(0xFF131B2E) : const Color(0xFFF1F5F9),
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -275,7 +278,7 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
                 onPressed: () {
-                  final now = DateTime.now();
+                  final now = TimezoneService.instance.activeNow(settings);
                   widget.onDateSelected(now);
                   _scrollToAnchorDate();
                 },
@@ -292,7 +295,8 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                 itemExtent: _dayColumnWidth,
                 itemBuilder: (context, index) {
                   final day = _startDate.add(Duration(days: index));
-                  final isToday = _isSameDay(day, DateTime.now());
+                  final activeToday = TimezoneService.instance.activeNow(settings);
+                  final isToday = _isSameDay(day, activeToday);
                   final isSelected = _isSameDay(day, widget.anchorDate);
 
                   return InkWell(
@@ -387,6 +391,7 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
     List<Event> events,
     bool isSelected,
     bool isDark,
+    SettingsState settings,
   ) {
     const totalHeight = (_endHour - _startHour + 1) * _hourHeight;
 
@@ -482,8 +487,11 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                 },
                 onAcceptWithDetails: (details) async {
                   final item = details.data;
-                  final startTime = DateTime(day.year, day.month, day.day, hour, minute);
-                  final endTime = startTime.add(Duration(minutes: item.durationMinutes));
+                  final activeStartTime = DateTime(day.year, day.month, day.day, hour, minute);
+                  final activeEndTime = activeStartTime.add(Duration(minutes: item.durationMinutes));
+
+                  final utcStartTime = TimezoneService.instance.fromActiveTime(activeStartTime, settings);
+                  final utcEndTime = TimezoneService.instance.fromActiveTime(activeEndTime, settings);
 
                   widget.onDateSelected(day);
 
@@ -492,8 +500,8 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                   final newId = await eventDao.insertEvent(
                     EventsCompanion.insert(
                       title: item.title,
-                      startTime: startTime,
-                      endTime: endTime,
+                      startTime: utcStartTime,
+                      endTime: utcEndTime,
                       category: drift.Value(item.category),
                       isAutoScheduled: const drift.Value(true),
                       autoScheduleSource: drift.Value(item.scheduleSource),
@@ -528,7 +536,7 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'Scheduled "${item.title}" for ${DateFormat('EEE, MMM d • h:mm a').format(startTime)}',
+                              'Scheduled "${item.title}" for ${DateFormat('EEE, MMM d • h:mm a').format(activeStartTime)}',
                               style: const TextStyle(color: Colors.white, fontSize: 12),
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -563,16 +571,16 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
 
           // Events positioned by time
           ...events.map((event) {
-            return _buildEventTile(context, event, isDark);
+            return _buildEventTile(context, event, isDark, settings);
           }),
         ],
       ),
     );
   }
 
-  Widget _buildEventTile(BuildContext context, Event event, bool isDark) {
-    final start = event.startTime.toLocal();
-    final end = event.endTime.toLocal();
+  Widget _buildEventTile(BuildContext context, Event event, bool isDark, SettingsState settings) {
+    final start = TimezoneService.instance.toActiveTime(event.startTime, settings);
+    final end = TimezoneService.instance.toActiveTime(event.endTime, settings);
 
     final startMinutes = (start.hour - _startHour) * 60 + start.minute;
     final durationMinutes = end.difference(start).inMinutes;
@@ -589,7 +597,7 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
       right: 2,
       height: height.clamp(26.0, 400.0),
       child: GestureDetector(
-        onTap: () => _showEventDetails(context, event),
+        onTap: () => _showEventDetails(context, event, settings),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(8),
           child: Container(
@@ -663,7 +671,7 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
     );
   }
 
-  void _showEventDetails(BuildContext context, Event event) {
+  void _showEventDetails(BuildContext context, Event event, SettingsState settings) {
     String sessionTypeLabel = 'Scheduled Session';
     if (event.autoScheduleSource != null) {
       if (event.autoScheduleSource!.startsWith('habit:')) {
@@ -676,6 +684,10 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
         sessionTypeLabel = 'Scheduled Task Focus Session';
       }
     }
+
+    final activeStart = TimezoneService.instance.toActiveTime(event.startTime, settings);
+    final activeEnd = TimezoneService.instance.toActiveTime(event.endTime, settings);
+    final tzLabel = TimezoneService.instance.getActiveTimezoneLabel(settings);
 
     showModalBottomSheet(
       context: context,
@@ -701,7 +713,7 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                   tooltip: 'Edit Event',
                   onPressed: () async {
                     Navigator.of(sheetContext).pop();
-                    await EditEventDialog.show(context, event, occurrenceDate: event.startTime);
+                    await EditEventDialog.show(context, event, occurrenceDate: activeStart);
                     ref.invalidate(selectedDateEventsProvider);
                     ref.invalidate(todayEventsProvider);
                     ref.invalidate(allEventsStreamProvider);
@@ -724,8 +736,8 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
             ),
             const SizedBox(height: 6),
             Text(
-              '${DateFormat('EEEE, MMMM d, yyyy').format(event.startTime.toLocal())}\n'
-              '${DateFormat('h:mm a').format(event.startTime.toLocal())} – ${DateFormat('h:mm a').format(event.endTime.toLocal())}',
+              '${DateFormat('EEEE, MMMM d, yyyy').format(activeStart)}\n'
+              '${DateFormat('h:mm a').format(activeStart)} – ${DateFormat('h:mm a').format(activeEnd)} ($tzLabel)',
               style: const TextStyle(fontSize: 13, color: Colors.grey),
             ),
             const SizedBox(height: 12),
@@ -751,7 +763,7 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
               const SizedBox(height: 12),
               OutlinedButton.icon(
                 icon: const Icon(Icons.event_busy, size: 16, color: Colors.orangeAccent),
-                label: Text('Cancel Occurrence on ${DateFormat('EEE, MMM d').format(event.startTime)}'),
+                label: Text('Cancel Occurrence on ${DateFormat('EEE, MMM d').format(activeStart)}'),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.orangeAccent,
                   side: const BorderSide(color: Colors.orangeAccent),
@@ -763,7 +775,7 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                     builder: (ctx) => AlertDialog(
                       title: const Text('Cancel Occurrence'),
                       content: Text(
-                        'Temporarily cancel "${event.title}" on ${DateFormat('EEEE, MMM d, yyyy').format(event.startTime)}?\n\n'
+                        'Temporarily cancel "${event.title}" on ${DateFormat('EEEE, MMM d, yyyy').format(activeStart)}?\n\n'
                         'It will be hidden from the timetable, agenda, and dashboard. You can restore it anytime in All Events.',
                       ),
                       actions: [
@@ -781,7 +793,7 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                   );
 
                   if (confirm == true) {
-                    await ref.read(eventRepositoryProvider).cancelRecurringOccurrence(event.id, event.startTime);
+                    await ref.read(eventRepositoryProvider).cancelRecurringOccurrence(event.id, activeStart);
                     ref.invalidate(selectedDateEventsProvider);
                     ref.invalidate(todayEventsProvider);
                     ref.invalidate(allEventsStreamProvider);
@@ -789,7 +801,7 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: Text('Cancelled occurrence for ${DateFormat('MMM d').format(event.startTime)}. You can restore it in All Events.'),
+                          content: Text('Cancelled occurrence for ${DateFormat('MMM d').format(activeStart)}. You can restore it in All Events.'),
                           behavior: SnackBarBehavior.floating,
                         ),
                       );
