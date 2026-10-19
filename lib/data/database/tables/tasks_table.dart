@@ -8,6 +8,7 @@ import 'package:drift/drift.dart';
 /// Unlike events, tasks do not have a fixed start time — they have a due date.
 class Tasks extends Table {
   IntColumn get id => integer().autoIncrement()();
+  TextColumn get syncId => text().nullable()();
 
   TextColumn get title => text().withLength(min: 1, max: 200)();
 

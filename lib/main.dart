@@ -13,6 +13,7 @@ import 'package:kairos/data/repositories/event_repository.dart';
 import 'package:kairos/services/habit_suggestion_service.dart';
 import 'package:kairos/services/notification_service.dart';
 import 'package:kairos/services/settings_service.dart';
+import 'package:kairos/services/supabase_sync_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/router.dart';
 import 'package:kairos/ui/theme/app_theme.dart';
@@ -48,9 +49,15 @@ class _KairosAppState extends ConsumerState<KairosApp> {
   }
 
   void _startHabitMonitoring() {
-    // Run initial checks 2 seconds after startup
+    // Run initial checks and sync 2 seconds after startup
     Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) _runHabitChecks();
+      if (mounted) {
+        _runHabitChecks();
+        final settings = ref.read(settingsNotifierProvider);
+        if (settings.isSupabaseConfigured) {
+          ref.read(supabaseSyncServiceProvider.notifier).syncNow();
+        }
+      }
     });
 
     // Run periodic checks every 15 minutes
@@ -71,6 +78,11 @@ class _KairosAppState extends ConsumerState<KairosApp> {
         ref.invalidate(weeklyHabitCompletionsProvider);
       },
     );
+
+    // Periodic cloud sync if configured
+    if (settings.isSupabaseConfigured) {
+      ref.read(supabaseSyncServiceProvider.notifier).syncNow();
+    }
   }
 
   Future<void> _bootstrapData() async {

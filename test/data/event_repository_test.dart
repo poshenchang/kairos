@@ -46,6 +46,8 @@ Holiday _holiday({
   DateTime? endDate,
   String groupName = 'US Holidays',
   bool isEnabled = true,
+  bool isDeleted = false,
+  DateTime? updatedAt,
 }) {
   return Holiday(
     id: id,
@@ -54,6 +56,8 @@ Holiday _holiday({
     endDate: endDate,
     groupName: groupName,
     isEnabled: isEnabled,
+    isDeleted: isDeleted,
+    updatedAt: updatedAt ?? DateTime.now(),
   );
 }
 

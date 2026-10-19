@@ -10,6 +10,7 @@ import 'habits_table.dart';
 /// have already been completed in the current week.
 class HabitLogs extends Table {
   IntColumn get id => integer().autoIncrement()();
+  TextColumn get syncId => text().nullable()();
 
   /// The habit this log entry belongs to.
   IntColumn get habitId =>
@@ -25,4 +26,6 @@ class HabitLogs extends Table {
   TextColumn get notes => text().nullable()();
 
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+
+  DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
 }

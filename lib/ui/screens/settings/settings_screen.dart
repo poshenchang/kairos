@@ -11,17 +11,134 @@
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/notification_service.dart';
 import 'package:kairos/services/settings_service.dart';
+import 'package:kairos/services/supabase_sync_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/theme/app_theme.dart';
 import 'package:kairos/ui/theme/theme_provider.dart';
 import 'package:kairos/ui/widgets/app_global_actions.dart';
 import 'package:kairos/ui/widgets/help_guide_dialog.dart';
+
+const _kSupabaseSqlSetupScript = '''
+-- Kairos Database Schema for Supabase Cloud Sync
+
+CREATE TABLE IF NOT EXISTS public.categories (
+    sync_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    emoji TEXT DEFAULT '📌',
+    color_hex TEXT DEFAULT '#4A90D9',
+    is_system BOOLEAN DEFAULT FALSE,
+    is_deleted BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.events (
+    sync_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    category TEXT DEFAULT 'other',
+    event_type TEXT,
+    start_time TIMESTAMPTZ NOT NULL,
+    end_time TIMESTAMPTZ NOT NULL,
+    is_recurring BOOLEAN DEFAULT FALSE,
+    rrule TEXT,
+    requires_prep BOOLEAN DEFAULT FALSE,
+    prep_minutes INT,
+    is_auto_scheduled BOOLEAN DEFAULT FALSE,
+    auto_schedule_source TEXT,
+    notes TEXT,
+    is_deleted BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.tasks (
+    sync_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    category TEXT DEFAULT 'other',
+    description TEXT,
+    due_date TIMESTAMPTZ NOT NULL,
+    estimated_minutes INT,
+    priority INT DEFAULT 3,
+    is_recurring BOOLEAN DEFAULT FALSE,
+    rrule TEXT,
+    is_completed BOOLEAN DEFAULT FALSE,
+    completed_at TIMESTAMPTZ,
+    is_deleted BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.subtasks (
+    sync_id TEXT PRIMARY KEY,
+    task_sync_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    is_completed BOOLEAN DEFAULT FALSE,
+    is_deleted BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.habits (
+    sync_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT,
+    category TEXT DEFAULT 'other',
+    frequency_per_week INT DEFAULT 1,
+    preferred_time_of_day TEXT DEFAULT 'anytime',
+    target_duration_minutes INT DEFAULT 30,
+    days_filter TEXT DEFAULT 'all',
+    is_active BOOLEAN DEFAULT TRUE,
+    is_deleted BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.habit_logs (
+    sync_id TEXT PRIMARY KEY,
+    habit_sync_id TEXT NOT NULL,
+    completed_at TIMESTAMPTZ DEFAULT NOW(),
+    duration_minutes INT DEFAULT 30,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.holidays (
+    sync_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    group_name TEXT DEFAULT 'US Holidays',
+    date TIMESTAMPTZ NOT NULL,
+    end_date TIMESTAMPTZ,
+    is_enabled BOOLEAN DEFAULT TRUE,
+    is_deleted BOOLEAN DEFAULT FALSE,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable Row Level Security and allow read/write with Publishable Key
+ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.subtasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.habits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.habit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.holidays ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow all on categories" ON public.categories FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all on events" ON public.events FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all on tasks" ON public.tasks FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all on subtasks" ON public.subtasks FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all on habits" ON public.habits FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all on habit_logs" ON public.habit_logs FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all on holidays" ON public.holidays FOR ALL USING (true) WITH CHECK (true);
+''';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -803,6 +920,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Widget _buildSupabaseSyncCard(BuildContext context) {
     final settings = ref.watch(settingsNotifierProvider);
+    final syncState = ref.watch(supabaseSyncServiceProvider);
     final isConnected = settings.isSupabaseConfigured;
 
     return Card(
@@ -836,24 +954,47 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                 ),
                 const Spacer(),
-                Text(
-                  isConnected ? 'Connected' : 'Offline Mode',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: isConnected ? Colors.green : Colors.grey,
-                    fontWeight: FontWeight.bold,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (syncState.status == SyncStatus.syncing) ...[
+                      const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                    Text(
+                      syncState.status == SyncStatus.syncing
+                          ? 'Syncing...'
+                          : isConnected
+                              ? 'Connected'
+                              : 'Offline Mode',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isConnected ? Colors.green : Colors.grey,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
             const SizedBox(height: 12),
             Row(
               children: [
-                const Text(
-                  'Sync Across Linux Desktop & iOS Devices',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                const Expanded(
+                  child: Text(
+                    'Sync Across Web, Desktop & Mobile',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  ),
                 ),
-                const SizedBox(width: 4),
+                TextButton.icon(
+                  icon: const Icon(Icons.code, size: 16),
+                  label: const Text('SQL Setup', style: TextStyle(fontSize: 12)),
+                  onPressed: () => _showSqlSetupDialog(context),
+                ),
                 IconButton(
                   icon: const Icon(Icons.help_outline, size: 18, color: Colors.blueAccent),
                   tooltip: 'How to obtain Supabase API keys',
@@ -866,6 +1007,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               'Supabase provides a generous free PostgreSQL database (500 MB storage, real-time sync, 50,000 active users) with zero credit card required. Kairos remains 100% functional offline with Drift SQLite.',
               style: TextStyle(fontSize: 12, height: 1.45, color: Colors.grey),
             ),
+            if (syncState.lastSyncTime != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(Icons.check_circle_outline, size: 14, color: Colors.green.shade600),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Last synced: ${DateFormat.jm().format(syncState.lastSyncTime!)} · ${DateFormat.MMMd().format(syncState.lastSyncTime!)}',
+                    style: TextStyle(fontSize: 11, color: Colors.green.shade600),
+                  ),
+                ],
+              ),
+            ],
+            if (syncState.errorMessage != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline, size: 16, color: Colors.red),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        syncState.errorMessage!,
+                        style: const TextStyle(fontSize: 11, color: Colors.red),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             TextField(
               controller: _supabaseUrlController,
@@ -893,7 +1070,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 14),
-            Row(
+            Wrap(
+              spacing: 12,
+              runSpacing: 10,
               children: [
                 ElevatedButton.icon(
                   icon: const Icon(Icons.cloud_done_outlined, size: 18),
@@ -910,16 +1089,55 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       return;
                     }
                     await ref.read(settingsNotifierProvider.notifier).setSupabaseConfig(url, key);
+                    final success = await ref.read(supabaseSyncServiceProvider.notifier).syncNow();
                     if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Supabase credentials saved! Sync configuration updated.'),
-                        ),
-                      );
+                      if (success) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Connected to Supabase! Sync completed successfully.'),
+                          ),
+                        );
+                      } else {
+                        final err = ref.read(supabaseSyncServiceProvider).errorMessage ?? 'Sync failed';
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            backgroundColor: Colors.red.shade800,
+                            content: Text(err),
+                            duration: const Duration(seconds: 6),
+                          ),
+                        );
+                      }
                     }
                   },
                 ),
-                const SizedBox(width: 12),
+                if (isConnected)
+                  OutlinedButton.icon(
+                    icon: syncState.status == SyncStatus.syncing
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.sync, size: 18),
+                    label: const Text('Sync Now'),
+                    onPressed: syncState.status == SyncStatus.syncing
+                        ? null
+                        : () async {
+                            final success = await ref.read(supabaseSyncServiceProvider.notifier).syncNow();
+                            if (context.mounted) {
+                              if (success) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Cloud sync completed!')),
+                                );
+                              } else {
+                                final err = ref.read(supabaseSyncServiceProvider).errorMessage ?? 'Sync failed';
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(backgroundColor: Colors.red.shade800, content: Text(err)),
+                                );
+                              }
+                            }
+                          },
+                  ),
                 OutlinedButton(
                   onPressed: () async {
                     await ref.read(settingsNotifierProvider.notifier).clearSupabaseConfig();
@@ -939,6 +1157,67 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showSqlSetupDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.terminal, color: Colors.blueAccent),
+            SizedBox(width: 8),
+            Text('Supabase SQL Schema Setup'),
+          ],
+        ),
+        content: SizedBox(
+          width: 550,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Run this script once in your Supabase Dashboard → SQL Editor to create the tables required for cloud sync:',
+                style: TextStyle(fontSize: 12, color: Theme.of(ctx).colorScheme.onSurface),
+              ),
+              const SizedBox(height: 10),
+              Container(
+                height: 220,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
+                ),
+                child: SingleChildScrollView(
+                  child: SelectableText(
+                    _kSupabaseSqlSetupScript,
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          ElevatedButton.icon(
+            icon: const Icon(Icons.copy, size: 16),
+            label: const Text('Copy SQL Script'),
+            onPressed: () {
+              Clipboard.setData(const ClipboardData(text: _kSupabaseSqlSetupScript));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('SQL setup script copied to clipboard!')),
+              );
+              Navigator.of(ctx).pop();
+            },
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+        ],
       ),
     );
   }

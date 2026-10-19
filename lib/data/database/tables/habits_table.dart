@@ -9,6 +9,7 @@ import 'package:drift/drift.dart';
 /// into free slots to meet the weekly target.
 class Habits extends Table {
   IntColumn get id => integer().autoIncrement()();
+  TextColumn get syncId => text().nullable()();
 
   TextColumn get title => text().withLength(min: 1, max: 200)();
 

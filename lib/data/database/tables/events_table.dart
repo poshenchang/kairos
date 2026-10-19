@@ -13,6 +13,9 @@ class Events extends Table {
   /// Primary key.
   IntColumn get id => integer().autoIncrement()();
 
+  /// Globally unique UUID for multi-device cloud synchronization.
+  TextColumn get syncId => text().nullable()();
+
   /// Human-readable title.
   TextColumn get title => text().withLength(min: 1, max: 200)();
 

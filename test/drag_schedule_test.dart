@@ -88,7 +88,9 @@ void main() {
         taskId: 101,
         title: 'Problem Set 1',
         isCompleted: false,
+        isDeleted: false,
         createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
       );
 
       final item = DragScheduleItem(

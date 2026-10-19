@@ -44,7 +44,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(QueryExecutor e) : super(e);
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -57,6 +57,22 @@ class AppDatabase extends _$AppDatabase {
           if (from < 3) {
             await m.addColumn(holidays, holidays.groupName);
             await m.addColumn(habits, habits.daysFilter);
+          }
+          if (from < 4) {
+            await m.addColumn(events, events.syncId);
+            await m.addColumn(tasks, tasks.syncId);
+            await m.addColumn(habits, habits.syncId);
+            await m.addColumn(habitLogs, habitLogs.syncId);
+            await m.addColumn(habitLogs, habitLogs.updatedAt);
+            await m.addColumn(holidays, holidays.syncId);
+            await m.addColumn(holidays, holidays.isDeleted);
+            await m.addColumn(holidays, holidays.updatedAt);
+            await m.addColumn(categories, categories.syncId);
+            await m.addColumn(categories, categories.isDeleted);
+            await m.addColumn(categories, categories.updatedAt);
+            await m.addColumn(subtasks, subtasks.syncId);
+            await m.addColumn(subtasks, subtasks.isDeleted);
+            await m.addColumn(subtasks, subtasks.updatedAt);
           }
         },
         beforeOpen: (details) async {
