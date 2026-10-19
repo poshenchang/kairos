@@ -84,7 +84,8 @@ class AppDatabase extends _$AppDatabase {
     try {
       await m.createTable(table);
     } catch (e) {
-      if (!e.toString().contains('already exists')) {
+      final msg = e.toString().toLowerCase();
+      if (!msg.contains('already exists')) {
         rethrow;
       }
     }
@@ -98,11 +99,18 @@ class AppDatabase extends _$AppDatabase {
     try {
       final rows = await customSelect('PRAGMA table_info("${table.actualTableName}")').get();
       final columnNames = rows.map((r) => r.read<String>('name')).toSet();
-      if (!columnNames.contains(column.name)) {
-        await m.addColumn(table, column);
+      if (columnNames.contains(column.name)) {
+        return;
       }
+    } catch (_) {
+      // If PRAGMA check fails for any reason, proceed to attempt addColumn
+    }
+
+    try {
+      await m.addColumn(table, column);
     } catch (e) {
-      if (!e.toString().contains('duplicate column name')) {
+      final msg = e.toString().toLowerCase();
+      if (!msg.contains('duplicate column') && !msg.contains('already exists')) {
         rethrow;
       }
     }
