@@ -63,16 +63,16 @@ class AppDatabase extends _$AppDatabase {
             await _safeAddColumn(m, tasks, tasks.syncId);
             await _safeAddColumn(m, habits, habits.syncId);
             await _safeAddColumn(m, habitLogs, habitLogs.syncId);
-            await _safeAddColumn(m, habitLogs, habitLogs.updatedAt);
+            await _safeAddTimestampColumn('habit_logs', 'updated_at');
             await _safeAddColumn(m, holidays, holidays.syncId);
             await _safeAddColumn(m, holidays, holidays.isDeleted);
-            await _safeAddColumn(m, holidays, holidays.updatedAt);
+            await _safeAddTimestampColumn('holidays', 'updated_at');
             await _safeAddColumn(m, categories, categories.syncId);
             await _safeAddColumn(m, categories, categories.isDeleted);
-            await _safeAddColumn(m, categories, categories.updatedAt);
+            await _safeAddTimestampColumn('categories', 'updated_at');
             await _safeAddColumn(m, subtasks, subtasks.syncId);
             await _safeAddColumn(m, subtasks, subtasks.isDeleted);
-            await _safeAddColumn(m, subtasks, subtasks.updatedAt);
+            await _safeAddTimestampColumn('subtasks', 'updated_at');
           }
         },
         beforeOpen: (details) async {
@@ -86,6 +86,33 @@ class AppDatabase extends _$AppDatabase {
     } catch (e) {
       final msg = e.toString().toLowerCase();
       if (!msg.contains('already exists')) {
+        rethrow;
+      }
+    }
+  }
+
+  Future<void> _safeAddTimestampColumn(
+    String tableName,
+    String columnName,
+  ) async {
+    try {
+      final rows = await customSelect('PRAGMA table_info("$tableName")').get();
+      final columnNames = rows.map((r) => r.read<String>('name')).toSet();
+      if (columnNames.contains(columnName)) {
+        return;
+      }
+    } catch (_) {}
+
+    try {
+      // SQLite ALTER TABLE requires a constant literal default (expressions like
+      // CURRENT_TIMESTAMP are rejected). We use DEFAULT 0 and then backfill.
+      await customStatement('ALTER TABLE "$tableName" ADD COLUMN "$columnName" INTEGER NOT NULL DEFAULT 0;');
+      await customStatement(
+        'UPDATE "$tableName" SET "$columnName" = CAST(strftime(\'%s\', CURRENT_TIMESTAMP) AS INTEGER) WHERE "$columnName" = 0;',
+      );
+    } catch (e) {
+      final msg = e.toString().toLowerCase();
+      if (!msg.contains('duplicate column') && !msg.contains('already exists')) {
         rethrow;
       }
     }
@@ -110,6 +137,14 @@ class AppDatabase extends _$AppDatabase {
       await m.addColumn(table, column);
     } catch (e) {
       final msg = e.toString().toLowerCase();
+      if (msg.contains('non-constant default')) {
+        // Fallback for SQLite when an expression default was attempted
+        final isText = column.type == DriftSqlType.string;
+        final sqlDefault = isText ? "DEFAULT ''" : "DEFAULT 0";
+        final sqlType = isText ? 'TEXT' : 'INTEGER';
+        await customStatement('ALTER TABLE "${table.actualTableName}" ADD COLUMN "${column.name}" $sqlType NOT NULL $sqlDefault;');
+        return;
+      }
       if (!msg.contains('duplicate column') && !msg.contains('already exists')) {
         rethrow;
       }
