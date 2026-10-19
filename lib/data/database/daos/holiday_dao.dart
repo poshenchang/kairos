@@ -13,6 +13,48 @@ part 'holiday_dao.g.dart';
 class HolidayDao extends DatabaseAccessor<AppDatabase> with _$HolidayDaoMixin {
   HolidayDao(super.db);
 
+  static final Set<String> defaultHolidayNames = {
+    "new year's day",
+    "martin luther king jr. day",
+    "memorial day",
+    "juneteenth",
+    "independence day",
+    "labor day",
+    "thanksgiving break",
+    "founding day / new year (開國紀念日)",
+    "lunar new year break (農曆春節連假)",
+    "228 peace memorial day (和平紀念日)",
+    "children's day & tomb sweeping (兒童節與清明節)",
+    "dragon boat festival (端午節)",
+    "mid-autumn festival (中秋節)",
+    "national day (國慶日)",
+    "spring break",
+    "fall break / reading days",
+    "winter recess",
+  };
+
+  static bool isDefaultHolidayName(String name) =>
+      defaultHolidayNames.contains(name.trim().toLowerCase());
+
+  /// Cancels (soft-deletes) all default seeded holidays so they are never active.
+  Future<int> cancelAllDefaultHolidays() async {
+    final all = await (select(holidays)).get();
+    final toCancel = all
+        .where((h) => !h.isDeleted && isDefaultHolidayName(h.name))
+        .map((h) => h.id)
+        .toList();
+    if (toCancel.isEmpty) return 0;
+
+    final now = DateTime.now().toUtc();
+    return (update(holidays)..where((h) => h.id.isIn(toCancel))).write(
+      HolidaysCompanion(
+        isDeleted: const Value(true),
+        isEnabled: const Value(false),
+        updatedAt: Value(now),
+      ),
+    );
+  }
+
   Future<List<Holiday>> getAllHolidays() async {
     final list = await (select(holidays)
           ..where((h) => h.isDeleted.equals(false))
@@ -32,6 +74,7 @@ class HolidayDao extends DatabaseAccessor<AppDatabase> with _$HolidayDaoMixin {
     final seen = <String>{};
     final result = <Holiday>[];
     for (final h in list) {
+      if (h.isDeleted) continue;
       final key = '${h.name.trim().toLowerCase()}|${h.groupName.trim().toLowerCase()}|${h.date.year}-${h.date.month}-${h.date.day}';
       if (seen.add(key)) {
         result.add(h);
@@ -55,20 +98,24 @@ class HolidayDao extends DatabaseAccessor<AppDatabase> with _$HolidayDaoMixin {
     final target = await (select(holidays)..where((h) => h.id.equals(id))).getSingleOrNull();
     final now = DateTime.now().toUtc();
     if (target != null) {
-      return (update(holidays)
-            ..where((h) =>
-                (h.id.equals(id)) |
-                (h.name.equals(target.name) &
-                 h.groupName.equals(target.groupName) &
-                 h.date.equals(target.date))))
-          .write(HolidaysCompanion(
-            isDeleted: const Value(true),
-            updatedAt: Value(now),
-          ));
+      final targetName = target.name.trim().toLowerCase();
+      final all = await (select(holidays)).get();
+      final idsToUpdate = all
+          .where((h) => h.id == id || h.name.trim().toLowerCase() == targetName)
+          .map((h) => h.id)
+          .toList();
+      return (update(holidays)..where((h) => h.id.isIn(idsToUpdate))).write(
+        HolidaysCompanion(
+          isDeleted: const Value(true),
+          isEnabled: const Value(false),
+          updatedAt: Value(now),
+        ),
+      );
     }
     return (update(holidays)..where((h) => h.id.equals(id))).write(
       HolidaysCompanion(
         isDeleted: const Value(true),
+        isEnabled: const Value(false),
         updatedAt: Value(now),
       ),
     );
@@ -78,16 +125,34 @@ class HolidayDao extends DatabaseAccessor<AppDatabase> with _$HolidayDaoMixin {
         ..where((h) => h.groupName.equals(groupName)))
       .write(HolidaysCompanion(
         isDeleted: const Value(true),
+        isEnabled: const Value(false),
         updatedAt: Value(DateTime.now().toUtc()),
       ));
 
-  Future<int> toggleHoliday(int id, bool isEnabled) =>
-      (update(holidays)..where((h) => h.id.equals(id))).write(
+  Future<int> toggleHoliday(int id, bool isEnabled) async {
+    final target = await (select(holidays)..where((h) => h.id.equals(id))).getSingleOrNull();
+    final now = DateTime.now().toUtc();
+    if (target != null) {
+      final targetName = target.name.trim().toLowerCase();
+      final all = await (select(holidays)).get();
+      final idsToUpdate = all
+          .where((h) => h.id == id || h.name.trim().toLowerCase() == targetName)
+          .map((h) => h.id)
+          .toList();
+      return (update(holidays)..where((h) => h.id.isIn(idsToUpdate))).write(
         HolidaysCompanion(
           isEnabled: Value(isEnabled),
-          updatedAt: Value(DateTime.now().toUtc()),
+          updatedAt: Value(now),
         ),
       );
+    }
+    return (update(holidays)..where((h) => h.id.equals(id))).write(
+      HolidaysCompanion(
+        isEnabled: Value(isEnabled),
+        updatedAt: Value(now),
+      ),
+    );
+  }
 
   Future<int> toggleHolidayGroup(String groupName, bool isEnabled) =>
       (update(holidays)..where((h) => h.groupName.equals(groupName) & h.isDeleted.equals(false))).write(

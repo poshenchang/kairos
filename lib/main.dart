@@ -162,13 +162,8 @@ class _KairosAppState extends ConsumerState<KairosApp> {
       }
     }
 
-    // Seed default holidays only once across app lifetime
-    final prefs = await SharedPreferences.getInstance();
-    final hasSeeded = prefs.getBool('kairos_holidays_seeded_v1') ?? false;
-    if (!hasSeeded) {
-      await db.holidayDao.seedDefaultHolidays(DateTime.now().year);
-      await prefs.setBool('kairos_holidays_seeded_v1', true);
-    }
+    // Cancel all default system holidays so holidays are strictly user-managed
+    await db.holidayDao.cancelAllDefaultHolidays();
     // Clean up any historical duplicate holidays
     await db.holidayDao.deduplicateHolidays();
 

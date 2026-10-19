@@ -208,6 +208,80 @@ void main() {
       expect(activeCount, 1);
       expect(deletedCount, 2);
     });
+
+    test('cancelAllDefaultHolidays marks all default holidays as isDeleted=true and preserves custom holidays', () async {
+      await db.holidayDao.seedDefaultHolidays(2026, force: true);
+      await db.holidayDao.insertHoliday(
+        HolidaysCompanion.insert(
+          name: 'My Custom Break',
+          groupName: const Value('Custom'),
+          date: DateTime(2026, 7, 10),
+        ),
+      );
+
+      final before = await db.holidayDao.getAllHolidays();
+      expect(before.any((h) => h.name == 'New Year\'s Day'), isTrue);
+      expect(before.any((h) => h.name == 'My Custom Break'), isTrue);
+
+      final cancelled = await db.holidayDao.cancelAllDefaultHolidays();
+      expect(cancelled, greaterThan(10));
+
+      final after = await db.holidayDao.getAllHolidays();
+      expect(after.any((h) => h.name == 'New Year\'s Day'), isFalse);
+      expect(after.any((h) => h.name == 'Memorial Day'), isFalse);
+      expect(after.any((h) => h.name == 'My Custom Break'), isTrue);
+    });
+
+    test('deleteHoliday marks all copies of the same holiday name as isDeleted=true', () async {
+      await db.holidayDao.insertHoliday(
+        HolidaysCompanion.insert(
+          name: 'Conference Day',
+          groupName: const Value('Academic Breaks'),
+          date: DateTime(2026, 11, 5),
+        ),
+      );
+      final id2 = await db.holidayDao.insertHoliday(
+        HolidaysCompanion.insert(
+          name: 'Conference Day',
+          groupName: const Value('Academic Breaks'),
+          date: DateTime(2026, 11, 5, 8, 0),
+        ),
+      );
+
+      await db.holidayDao.deleteHoliday(id2);
+
+      final all = await db.select(db.holidays).get();
+      final matching = all.where((h) => h.name == 'Conference Day');
+      for (final h in matching) {
+        expect(h.isDeleted, isTrue);
+        expect(h.isEnabled, isFalse);
+      }
+    });
+
+    test('toggleHoliday toggles all copies of the same holiday name', () async {
+      await db.holidayDao.insertHoliday(
+        HolidaysCompanion.insert(
+          name: 'Symposium',
+          groupName: const Value('Academic Breaks'),
+          date: DateTime(2026, 11, 10),
+        ),
+      );
+      final id2 = await db.holidayDao.insertHoliday(
+        HolidaysCompanion.insert(
+          name: 'Symposium',
+          groupName: const Value('Academic Breaks'),
+          date: DateTime(2026, 11, 10, 8, 0),
+        ),
+      );
+
+      await db.holidayDao.toggleHoliday(id2, false);
+
+      final all = await db.select(db.holidays).get();
+      final matching = all.where((h) => h.name == 'Symposium');
+      for (final h in matching) {
+        expect(h.isEnabled, isFalse);
+      }
+    });
   });
 }
 

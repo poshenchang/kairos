@@ -686,10 +686,33 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ],
                   ),
                 ),
-                TextButton.icon(
-                  icon: const Icon(Icons.add, size: 16),
-                  label: const Text('Add Break'),
-                  onPressed: () => _showAddHolidayDialog(context, holidayDao),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.cleaning_services_rounded, size: 14, color: Colors.redAccent),
+                      label: const Text('Purge Default Holidays', style: TextStyle(fontSize: 12, color: Colors.redAccent)),
+                      onPressed: () async {
+                        final count = await holidayDao.cancelAllDefaultHolidays();
+                        await holidayDao.deduplicateHolidays();
+                        ref.invalidate(selectedDateEventsProvider);
+                        ref.invalidate(todayEventsProvider);
+                        ref.invalidate(allEventsStreamProvider);
+                        await ref.read(supabaseSyncServiceProvider.notifier).syncNow();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Cancelled and synced $count default holidays.')),
+                          );
+                        }
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton.icon(
+                      icon: const Icon(Icons.add, size: 16),
+                      label: const Text('Add Break'),
+                      onPressed: () => _showAddHolidayDialog(context, holidayDao),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -700,25 +723,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 final holidays = snapshot.data ?? [];
 
                 if (holidays.isEmpty) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('No holiday blackout dates registered.', style: TextStyle(fontSize: 13, color: Colors.grey)),
-                        const SizedBox(height: 8),
-                        ElevatedButton.icon(
-                          icon: const Icon(Icons.auto_awesome, size: 16),
-                          label: const Text('Load Standard Academic & Regional Holidays'),
-                          onPressed: () async {
-                            await holidayDao.seedDefaultHolidays(DateTime.now().year, force: true);
-                            await ref.read(eventRepositoryProvider).autoCancelRecurringEventsForActiveHolidays();
-                            ref.invalidate(selectedDateEventsProvider);
-                            ref.invalidate(todayEventsProvider);
-                            ref.invalidate(allEventsStreamProvider);
-                          },
-                        ),
-                      ],
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16.0),
+                    child: Center(
+                      child: Text(
+                        'No custom holidays registered. Tap "+ Add Break" above to register holiday blackout dates.',
+                        style: TextStyle(fontSize: 13, color: Colors.grey),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
                   );
                 }
@@ -903,7 +915,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final nameCtrl = TextEditingController();
     DateTime startDate = DateTime.now();
     DateTime? endDate;
-    String selectedGroup = 'Taiwanese Holidays';
+    String selectedGroup = 'Custom';
 
     showDialog(
       context: context,

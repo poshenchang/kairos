@@ -843,7 +843,8 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
 
   // ── 7. HOLIDAYS SYNC ───────────────────────────────────────────────
   Future<int> _syncHolidays() async {
-    // 1. Run local deduplication first
+    // 1. Cancel all default system holidays and run deduplication
+    await _db.holidayDao.cancelAllDefaultHolidays();
     await _db.holidayDao.deduplicateHolidays();
 
     final url = Uri.parse('$_cleanBaseUrl/rest/v1/holidays?select=*');
@@ -861,22 +862,111 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
 
     final localList = await _db.select(_db.holidays).get();
     final localMap = {for (final l in localList) l.syncId!: l};
+    // Track locally deleted holiday names so we never resurrect them from remote
+    final deletedNames = <String>{};
+    for (final l in localList) {
+      if (l.isDeleted) deletedNames.add(l.name.trim().toLowerCase());
+    }
     final toPush = <Map<String, dynamic>>[];
+    final now = DateTime.now().toUtc();
 
     await _db.transaction(() async {
       for (final remote in remoteMap.values) {
         final syncId = remote['sync_id'] as String;
+        final name = (remote['name'] as String).trim();
+        final nameLower = name.toLowerCase();
         final remoteUpdatedAt = remote['updated_at'] != null
-            ? DateTime.parse(remote['updated_at'] as String)
-            : DateTime.now().toUtc();
+            ? TimezoneService.instance.parseRemoteTimestamp(remote['updated_at'] as String)
+            : now;
         final local = localMap[syncId];
+        final isDefault = HolidayDao.isDefaultHolidayName(name);
+        final isLocallyDeleted = isDefault || deletedNames.contains(nameLower);
 
+        if (isDefault) {
+          // Default holiday: ensure cancelled locally and pushed as deleted to Supabase
+          if (local == null) {
+            await _db.into(_db.holidays).insert(
+                  HolidaysCompanion.insert(
+                    syncId: Value(syncId),
+                    name: name,
+                    groupName: Value(remote['group_name'] as String? ?? 'US Holidays'),
+                    date: TimezoneService.instance.parseRemoteTimestamp(remote['date'] as String),
+                    endDate: Value(remote['end_date'] != null ? TimezoneService.instance.parseRemoteTimestamp(remote['end_date'] as String) : null),
+                    isEnabled: const Value(false),
+                    isDeleted: const Value(true),
+                    updatedAt: Value(now),
+                  ),
+                );
+          } else if (!local.isDeleted || local.isEnabled) {
+            await (_db.update(_db.holidays)..where((tbl) => tbl.id.equals(local.id))).write(
+              HolidaysCompanion(
+                isEnabled: const Value(false),
+                isDeleted: const Value(true),
+                updatedAt: Value(now),
+              ),
+            );
+          }
+          if (remote['is_deleted'] != true || remote['is_enabled'] != false) {
+            toPush.add({
+              'sync_id': syncId,
+              'name': name,
+              'group_name': remote['group_name'] ?? 'US Holidays',
+              'date': remote['date'],
+              'end_date': remote['end_date'],
+              'is_enabled': false,
+              'is_deleted': true,
+              'updated_at': now.toIso8601String(),
+            });
+          }
+          continue;
+        }
+
+        if (isLocallyDeleted) {
+          // Holiday was deleted locally: keep it deleted and push soft-deletion to Supabase
+          if (local == null) {
+            await _db.into(_db.holidays).insert(
+                  HolidaysCompanion.insert(
+                    syncId: Value(syncId),
+                    name: name,
+                    groupName: Value(remote['group_name'] as String? ?? 'Custom'),
+                    date: TimezoneService.instance.parseRemoteTimestamp(remote['date'] as String),
+                    endDate: Value(remote['end_date'] != null ? TimezoneService.instance.parseRemoteTimestamp(remote['end_date'] as String) : null),
+                    isEnabled: const Value(false),
+                    isDeleted: const Value(true),
+                    updatedAt: Value(now),
+                  ),
+                );
+          } else if (!local.isDeleted) {
+            await (_db.update(_db.holidays)..where((tbl) => tbl.id.equals(local.id))).write(
+              HolidaysCompanion(
+                isEnabled: const Value(false),
+                isDeleted: const Value(true),
+                updatedAt: Value(now),
+              ),
+            );
+          }
+          if (remote['is_deleted'] != true) {
+            toPush.add({
+              'sync_id': syncId,
+              'name': name,
+              'group_name': remote['group_name'] ?? 'Custom',
+              'date': remote['date'],
+              'end_date': remote['end_date'],
+              'is_enabled': false,
+              'is_deleted': true,
+              'updated_at': now.toIso8601String(),
+            });
+          }
+          continue;
+        }
+
+        // Normal custom user holiday
         if (local == null) {
           await _db.into(_db.holidays).insert(
                 HolidaysCompanion.insert(
                   syncId: Value(syncId),
-                  name: remote['name'] as String,
-                  groupName: Value(remote['group_name'] as String? ?? 'US Holidays'),
+                  name: name,
+                  groupName: Value(remote['group_name'] as String? ?? 'Custom'),
                   date: TimezoneService.instance.parseRemoteTimestamp(remote['date'] as String),
                   endDate: Value(remote['end_date'] != null ? TimezoneService.instance.parseRemoteTimestamp(remote['end_date'] as String) : null),
                   isEnabled: Value(remote['is_enabled'] as bool? ?? true),
@@ -887,8 +977,8 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
         } else if (remoteUpdatedAt.isAfter(local.updatedAt.toUtc())) {
           await (_db.update(_db.holidays)..where((tbl) => tbl.id.equals(local.id))).write(
             HolidaysCompanion(
-              name: Value(remote['name'] as String),
-              groupName: Value(remote['group_name'] as String? ?? 'US Holidays'),
+              name: Value(name),
+              groupName: Value(remote['group_name'] as String? ?? 'Custom'),
               date: Value(TimezoneService.instance.parseRemoteTimestamp(remote['date'] as String)),
               endDate: Value(remote['end_date'] != null ? TimezoneService.instance.parseRemoteTimestamp(remote['end_date'] as String) : null),
               isEnabled: Value(remote['is_enabled'] as bool? ?? true),
@@ -900,24 +990,33 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
       }
     });
 
-    // 2. Run deduplication again to merge any duplicates fetched from remote
+    // 2. Run deduplication again to clean any local copies
     await _db.holidayDao.deduplicateHolidays();
 
     // 3. Push local changes and newly soft-deleted duplicates
     final refreshedLocalList = await _db.select(_db.holidays).get();
     for (final local in refreshedLocalList) {
       final remote = remoteMap[local.syncId!];
-      if (remote == null || local.updatedAt.toUtc().isAfter(DateTime.parse(remote['updated_at'] as String).toUtc())) {
-        toPush.add({
-          'sync_id': local.syncId,
-          'name': local.name,
-          'group_name': local.groupName,
-          'date': TimezoneService.instance.formatForRemoteSync(local.date),
-          'end_date': local.endDate != null ? TimezoneService.instance.formatForRemoteSync(local.endDate!) : null,
-          'is_enabled': local.isEnabled,
-          'is_deleted': local.isDeleted,
-          'updated_at': local.updatedAt.toUtc().toIso8601String(),
-        });
+      final isDef = HolidayDao.isDefaultHolidayName(local.name);
+      if (isDef && remote != null && remote['is_deleted'] == true && remote['is_enabled'] == false) {
+        continue; // Already synchronized as cancelled on remote
+      }
+      if (remote == null ||
+          local.isDeleted != (remote['is_deleted'] as bool? ?? false) ||
+          local.isEnabled != (remote['is_enabled'] as bool? ?? true) ||
+          local.updatedAt.toUtc().isAfter(TimezoneService.instance.parseRemoteTimestamp(remote['updated_at'] as String))) {
+        if (!toPush.any((p) => p['sync_id'] == local.syncId)) {
+          toPush.add({
+            'sync_id': local.syncId,
+            'name': local.name,
+            'group_name': local.groupName,
+            'date': TimezoneService.instance.formatForRemoteSync(local.date),
+            'end_date': local.endDate != null ? TimezoneService.instance.formatForRemoteSync(local.endDate!) : null,
+            'is_enabled': local.isEnabled,
+            'is_deleted': local.isDeleted,
+            'updated_at': local.updatedAt.toUtc().toIso8601String(),
+          });
+        }
       }
     }
 
