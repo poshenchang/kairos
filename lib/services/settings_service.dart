@@ -15,6 +15,9 @@ const _kCalendarViewKey = 'kairos_calendar_view_mode';
 const _kSuggestHabitsInFreeTimeKey = 'kairos_suggest_habits_free_time';
 const _kSupabaseUrlKey = 'kairos_supabase_url';
 const _kSupabasePublishableKey = 'kairos_supabase_publishable_key';
+const _kTimezoneModeKey = 'kairos_timezone_mode';
+const _kManualTimezoneOffsetMinutesKey = 'kairos_manual_timezone_offset_minutes';
+const _kManualTimezoneNameKey = 'kairos_manual_timezone_name';
 
 class SettingsState {
   final ThemeMode themeMode;
@@ -25,6 +28,9 @@ class SettingsState {
   final bool suggestHabitsInFreeTime;
   final String supabaseUrl;
   final String supabasePublishableKey;
+  final String timezoneMode; // 'auto' or 'manual'
+  final int manualTimezoneOffsetMinutes; // e.g. 480 for UTC+8
+  final String manualTimezoneName;
 
   const SettingsState({
     this.themeMode = ThemeMode.system,
@@ -35,6 +41,9 @@ class SettingsState {
     this.suggestHabitsInFreeTime = true,
     this.supabaseUrl = '',
     this.supabasePublishableKey = '',
+    this.timezoneMode = 'auto',
+    this.manualTimezoneOffsetMinutes = 480, // Default to UTC+8
+    this.manualTimezoneName = 'UTC+08:00 (Taipei, Beijing, Singapore, Perth, HK, CST)',
   });
 
   bool get isSupabaseConfigured => supabaseUrl.isNotEmpty && supabasePublishableKey.isNotEmpty;
@@ -48,6 +57,9 @@ class SettingsState {
     bool? suggestHabitsInFreeTime,
     String? supabaseUrl,
     String? supabasePublishableKey,
+    String? timezoneMode,
+    int? manualTimezoneOffsetMinutes,
+    String? manualTimezoneName,
   }) {
     return SettingsState(
       themeMode: themeMode ?? this.themeMode,
@@ -58,6 +70,9 @@ class SettingsState {
       suggestHabitsInFreeTime: suggestHabitsInFreeTime ?? this.suggestHabitsInFreeTime,
       supabaseUrl: supabaseUrl ?? this.supabaseUrl,
       supabasePublishableKey: supabasePublishableKey ?? this.supabasePublishableKey,
+      timezoneMode: timezoneMode ?? this.timezoneMode,
+      manualTimezoneOffsetMinutes: manualTimezoneOffsetMinutes ?? this.manualTimezoneOffsetMinutes,
+      manualTimezoneName: manualTimezoneName ?? this.manualTimezoneName,
     );
   }
 }
@@ -89,6 +104,10 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     final suggestHabits = prefs.getBool(_kSuggestHabitsInFreeTimeKey) ?? true;
     final sbUrl = prefs.getString(_kSupabaseUrlKey) ?? '';
     final sbKey = prefs.getString(_kSupabasePublishableKey) ?? '';
+    final tzMode = prefs.getString(_kTimezoneModeKey) ?? 'auto';
+    final manualOffset = prefs.getInt(_kManualTimezoneOffsetMinutesKey) ?? 480;
+    final manualName = prefs.getString(_kManualTimezoneNameKey) ??
+        'UTC+08:00 (Taipei, Beijing, Singapore, Perth, HK, CST)';
 
     state = SettingsState(
       themeMode: themeMode,
@@ -99,7 +118,30 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
       suggestHabitsInFreeTime: suggestHabits,
       supabaseUrl: sbUrl,
       supabasePublishableKey: sbKey,
+      timezoneMode: tzMode,
+      manualTimezoneOffsetMinutes: manualOffset,
+      manualTimezoneName: manualName,
     );
+  }
+
+  Future<void> setTimezoneConfig({
+    required String mode,
+    int? manualOffsetMinutes,
+    String? manualName,
+  }) async {
+    state = state.copyWith(
+      timezoneMode: mode,
+      manualTimezoneOffsetMinutes: manualOffsetMinutes,
+      manualTimezoneName: manualName,
+    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kTimezoneModeKey, mode);
+    if (manualOffsetMinutes != null) {
+      await prefs.setInt(_kManualTimezoneOffsetMinutesKey, manualOffsetMinutes);
+    }
+    if (manualName != null) {
+      await prefs.setString(_kManualTimezoneNameKey, manualName);
+    }
   }
 
   Future<void> setSupabaseConfig(String url, String publishableKey) async {

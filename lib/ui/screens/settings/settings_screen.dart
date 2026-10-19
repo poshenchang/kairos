@@ -19,6 +19,7 @@ import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/notification_service.dart';
 import 'package:kairos/services/settings_service.dart';
 import 'package:kairos/services/supabase_sync_service.dart';
+import 'package:kairos/services/timezone_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/theme/app_theme.dart';
 import 'package:kairos/ui/theme/theme_provider.dart';
@@ -231,7 +232,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
             const SizedBox(height: 28),
 
-            // ── 3. HOLIDAYS & ACADEMIC BREAKS ───────────────────────────────
+            // ── 3. TIMEZONE & REGIONAL CONFIGURATION ────────────────────────
+            _buildSectionHeader('Timezone & Regional Schedule', Icons.schedule_outlined),
+            const SizedBox(height: 12),
+            _buildTimezoneCard(context, ref, settings),
+
+            const SizedBox(height: 28),
+
+            // ── 4. HOLIDAYS & ACADEMIC BREAKS ───────────────────────────────
             _buildSectionHeader('Academic Breaks & Holiday Blackouts', Icons.beach_access_outlined),
             const SizedBox(height: 12),
             _buildHolidaysCard(context, ref, holidayDao),
@@ -506,6 +514,322 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildTimezoneCard(BuildContext context, WidgetRef ref, SettingsState settings) {
+    final theme = Theme.of(context);
+    final detectedLabel = TimezoneService.instance.getDetectedTimezoneLabel();
+    final isAuto = settings.timezoneMode == 'auto';
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.schedule, size: 20, color: theme.colorScheme.primary),
+                const SizedBox(width: 8),
+                const Text(
+                  'Timezone & Schedule Alignment',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Kairos guarantees your schedule reflects your intended wall-clock hours across cloud devices. You can auto-detect system timezone or choose a fixed timezone.',
+              style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 16),
+
+            // Mode Selector: Auto vs Manual
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment<String>(
+                  value: 'auto',
+                  icon: Icon(Icons.my_location, size: 16),
+                  label: Text('Auto-Detect'),
+                ),
+                ButtonSegment<String>(
+                  value: 'manual',
+                  icon: Icon(Icons.edit_location_alt_outlined, size: 16),
+                  label: Text('Manual'),
+                ),
+              ],
+              selected: {settings.timezoneMode},
+              onSelectionChanged: (newSelection) {
+                final mode = newSelection.first;
+                ref.read(settingsNotifierProvider.notifier).setTimezoneConfig(
+                      mode: mode,
+                    );
+              },
+            ),
+            const SizedBox(height: 16),
+
+            if (isAuto) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.check_circle_outline, color: Colors.green, size: 20),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Active System Timezone:',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            detectedLabel,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: theme.colorScheme.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else ...[
+              Text(
+                'Select Timezone:',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: theme.colorScheme.outline),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<int>(
+                    value: kCommonTimezones.any((tz) => tz.offsetMinutes == settings.manualTimezoneOffsetMinutes)
+                        ? settings.manualTimezoneOffsetMinutes
+                        : 480,
+                    isExpanded: true,
+                    items: kCommonTimezones.map((tz) {
+                      return DropdownMenuItem<int>(
+                        value: tz.offsetMinutes,
+                        child: Text(
+                          tz.label,
+                          style: const TextStyle(fontSize: 13),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (newOffset) {
+                      if (newOffset == null) return;
+                      final option = kCommonTimezones.firstWhere(
+                        (tz) => tz.offsetMinutes == newOffset,
+                        orElse: () => kCommonTimezones.first,
+                      );
+                      ref.read(settingsNotifierProvider.notifier).setTimezoneConfig(
+                            mode: 'manual',
+                            manualOffsetMinutes: option.offsetMinutes,
+                            manualName: option.label,
+                          );
+                    },
+                  ),
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 20),
+            const Divider(height: 1),
+            const SizedBox(height: 16),
+
+            // Repair Section for 8-Hour Offset Shift
+            Row(
+              children: [
+                Icon(Icons.build_circle_outlined, size: 18, color: theme.colorScheme.primary),
+                const SizedBox(width: 6),
+                const Text(
+                  'Schedule Offset Alignment Tool',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'If your timetable events shifted 8 hours into the future due to an earlier cloud sync, use this tool to re-align all event start/end times and task deadlines back to your intended schedule and sync to Supabase.',
+              style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                FilledButton.tonalIcon(
+                  icon: const Icon(Icons.history, size: 18),
+                  label: const Text('Fix 8-Hour Shift (-8 Hours)'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                  onPressed: () => _confirmAndShiftSchedule(context, ref, const Duration(hours: -8), 'Fix 8-Hour Schedule Shift (-8h)'),
+                ),
+                TextButton.icon(
+                  icon: const Icon(Icons.more_time, size: 16),
+                  label: const Text('Custom Shift (+/-)...'),
+                  onPressed: () => _showCustomShiftDialog(context, ref),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmAndShiftSchedule(
+    BuildContext context,
+    WidgetRef ref,
+    Duration offset,
+    String actionLabel,
+  ) async {
+    final sign = offset.isNegative ? '' : '+';
+    final hours = offset.inHours;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(actionLabel),
+        content: Text(
+          'This will shift all existing non-deleted events and tasks by $sign$hours hours '
+          'in your local database, and immediately push the corrected times to Supabase.\n\n'
+          'Are you sure you want to proceed?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Re-align Schedule'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            ),
+            SizedBox(width: 12),
+            Text('Re-aligning timetable events and tasks...'),
+          ],
+        ),
+        duration: Duration(seconds: 2),
+      ),
+    );
+
+    final db = ref.read(appDatabaseProvider);
+    final count = await TimezoneService.instance.shiftAllEventsAndTasks(db, offset);
+
+    // Invalidate local providers to refresh UI immediately
+    ref.invalidate(selectedDateEventsProvider);
+    ref.invalidate(todayEventsProvider);
+    ref.invalidate(allEventsStreamProvider);
+    ref.invalidate(incompleteTasksStreamProvider);
+
+    // Trigger Supabase sync to update cloud database
+    ref.read(supabaseSyncServiceProvider.notifier).syncNow();
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Successfully re-aligned $count items ($sign${hours}h). Syncing with Supabase...'),
+        backgroundColor: Colors.green.shade700,
+      ),
+    );
+  }
+
+  void _showCustomShiftDialog(BuildContext context, WidgetRef ref) {
+    int selectedHours = -8;
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('Custom Schedule Shift'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Select the number of hours to add or subtract from all events and tasks:',
+                  style: TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<int>(
+                  initialValue: selectedHours,
+                  decoration: const InputDecoration(
+                    labelText: 'Hour Offset',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: -12, child: Text('-12 Hours')),
+                    DropdownMenuItem(value: -8, child: Text('-8 Hours (Common Shift Fix)')),
+                    DropdownMenuItem(value: -4, child: Text('-4 Hours')),
+                    DropdownMenuItem(value: -2, child: Text('-2 Hours')),
+                    DropdownMenuItem(value: -1, child: Text('-1 Hour')),
+                    DropdownMenuItem(value: 1, child: Text('+1 Hour')),
+                    DropdownMenuItem(value: 2, child: Text('+2 Hours')),
+                    DropdownMenuItem(value: 4, child: Text('+4 Hours')),
+                    DropdownMenuItem(value: 8, child: Text('+8 Hours')),
+                    DropdownMenuItem(value: 12, child: Text('+12 Hours')),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) setDialogState(() => selectedHours = val);
+                  },
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  _confirmAndShiftSchedule(
+                    context,
+                    ref,
+                    Duration(hours: selectedHours),
+                    'Custom Schedule Shift (${selectedHours > 0 ? '+$selectedHours' : selectedHours}h)',
+                  );
+                },
+                child: const Text('Apply Shift'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
