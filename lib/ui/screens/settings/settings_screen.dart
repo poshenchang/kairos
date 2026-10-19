@@ -277,9 +277,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       children: [
         Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
         const SizedBox(width: 8),
-        Text(
-          title,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
         ),
       ],
     );
@@ -668,53 +670,49 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Class & Routine Blackout Days',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'Weekly classes and routines are automatically disabled during active holidays & breaks.',
-                        style: TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                ),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isCompact = constraints.maxWidth < 480;
+                const textColumn = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.cleaning_services_rounded, size: 14, color: Colors.redAccent),
-                      label: const Text('Purge Default Holidays', style: TextStyle(fontSize: 12, color: Colors.redAccent)),
-                      onPressed: () async {
-                        final count = await holidayDao.cancelAllDefaultHolidays();
-                        await holidayDao.deduplicateHolidays();
-                        ref.invalidate(selectedDateEventsProvider);
-                        ref.invalidate(todayEventsProvider);
-                        ref.invalidate(allEventsStreamProvider);
-                        await ref.read(supabaseSyncServiceProvider.notifier).syncNow();
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Cancelled and synced $count default holidays.')),
-                          );
-                        }
-                      },
+                    Text(
+                      'Class & Routine Blackout Days',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                     ),
-                    const SizedBox(width: 8),
-                    FilledButton.icon(
-                      icon: const Icon(Icons.add, size: 16),
-                      label: const Text('Add Break'),
-                      onPressed: () => _showAddHolidayDialog(context, holidayDao),
+                    SizedBox(height: 3),
+                    Text(
+                      'Weekly classes and routines are automatically disabled during active holidays & breaks.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
                     ),
                   ],
-                ),
-              ],
+                );
+
+                final addButton = FilledButton.icon(
+                  icon: const Icon(Icons.add, size: 16),
+                  label: const Text('Add Break'),
+                  onPressed: () => _showAddHolidayDialog(context, holidayDao),
+                );
+
+                if (isCompact) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      textColumn,
+                      const SizedBox(height: 12),
+                      addButton,
+                    ],
+                  );
+                }
+
+                return Row(
+                  children: [
+                    const Expanded(child: textColumn),
+                    const SizedBox(width: 12),
+                    addButton,
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 8),
             StreamBuilder<List<Holiday>>(
@@ -854,7 +852,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                             return ListTile(
                               dense: true,
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12),
                               leading: Icon(
                                 h.isEnabled ? Icons.event_busy : Icons.event_available,
                                 color: h.isEnabled ? Colors.orangeAccent : Colors.grey,
@@ -865,26 +863,35 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Switch(
-                                    value: h.isEnabled,
-                                    onChanged: (val) async {
-                                      await holidayDao.toggleHoliday(h.id, val);
-                                      if (val) {
-                                        await ref.read(eventRepositoryProvider).autoCancelRecurringEventsForActiveHolidays();
-                                      }
-                                      ref.invalidate(selectedDateEventsProvider);
-                                      ref.invalidate(todayEventsProvider);
-                                      ref.invalidate(allEventsStreamProvider);
-                                      ref.read(supabaseSyncServiceProvider.notifier).syncNow();
-                                    },
+                                  Transform.scale(
+                                    scale: 0.85,
+                                    child: Switch(
+                                      value: h.isEnabled,
+                                      onChanged: (val) async {
+                                        await holidayDao.toggleHoliday(h.id, val);
+                                        if (val) {
+                                          await ref.read(eventRepositoryProvider).autoCancelRecurringEventsForActiveHolidays();
+                                        }
+                                        ref.invalidate(selectedDateEventsProvider);
+                                        ref.invalidate(todayEventsProvider);
+                                        ref.invalidate(allEventsStreamProvider);
+                                        ref.read(supabaseSyncServiceProvider.notifier).syncNow();
+                                      },
+                                    ),
                                   ),
                                   IconButton(
                                     icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.blueAccent),
+                                    visualDensity: VisualDensity.compact,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                                     tooltip: 'Edit Holiday',
                                     onPressed: () => _showEditHolidayDialog(context, holidayDao, h),
                                   ),
                                   IconButton(
                                     icon: const Icon(Icons.delete_outline, size: 18, color: Colors.grey),
+                                    visualDensity: VisualDensity.compact,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                                     tooltip: 'Delete Holiday',
                                     onPressed: () async {
                                       await holidayDao.deleteHoliday(h.id);
