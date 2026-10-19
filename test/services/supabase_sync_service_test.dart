@@ -92,6 +92,34 @@ void main() {
       expect(event.syncId, isNotNull);
       expect(event.syncId!.length, greaterThan(20));
     });
+
+    test('URL sanitization strips trailing slashes, /rest/v1, and handles dashboard URLs', () {
+      final s1 = SupabaseSyncService(db, const SettingsState(
+        supabaseUrl: 'https://xyzcompany.supabase.co/rest/v1/',
+        supabasePublishableKey: 'key',
+      ));
+      expect(s1.cleanBaseUrl, 'https://xyzcompany.supabase.co');
+
+      final s2 = SupabaseSyncService(db, const SettingsState(
+        supabaseUrl: 'https://xyzcompany.supabase.co/rest',
+        supabasePublishableKey: 'key',
+      ));
+      expect(s2.cleanBaseUrl, 'https://xyzcompany.supabase.co');
+
+      final s3 = SupabaseSyncService(db, const SettingsState(
+        supabaseUrl: 'https://supabase.com/dashboard/project/abcdefghij',
+        supabasePublishableKey: 'key',
+      ));
+      expect(s3.cleanBaseUrl, 'https://abcdefghij.supabase.co');
+    });
+
+    test('PGRST125 returns clear instructions to run SQL setup script', () {
+      final syncService = SupabaseSyncService(db, const SettingsState());
+      final msg = syncService.humanReadableError(
+        'Categories sync failed (404): {"code":"PGRST125","details":null,"hint":null,"message":"Invalid path specified in request URL"}',
+      );
+      expect(msg, contains('SQL Setup'));
+    });
   });
 }
 

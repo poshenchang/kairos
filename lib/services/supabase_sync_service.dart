@@ -59,8 +59,25 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
 
   bool get isConfigured => _settings.isSupabaseConfigured;
 
+  @visibleForTesting
+  String get cleanBaseUrl => _cleanBaseUrl;
+
+  @visibleForTesting
+  String humanReadableError(String raw) => _humanReadableError(raw);
+
   String get _cleanBaseUrl {
-    final raw = _settings.supabaseUrl.trim();
+    var raw = _settings.supabaseUrl.trim();
+    raw = raw.replaceAll(RegExp(r'/+$'), '');
+    if (raw.endsWith('/rest/v1')) {
+      raw = raw.substring(0, raw.length - '/rest/v1'.length);
+    } else if (raw.endsWith('/rest')) {
+      raw = raw.substring(0, raw.length - '/rest'.length);
+    }
+    final dashboardMatch = RegExp(r'supabase\.com/dashboard/project/([a-zA-Z0-9_-]+)').firstMatch(raw);
+    if (dashboardMatch != null) {
+      final projectRef = dashboardMatch.group(1);
+      raw = 'https://$projectRef.supabase.co';
+    }
     return raw.replaceAll(RegExp(r'/+$'), '');
   }
 
@@ -116,10 +133,14 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
   }
 
   String _humanReadableError(String raw) {
-    if (raw.contains('does not exist') || raw.contains('42P01')) {
-      return 'Supabase tables not found. Please run the SQL setup script in your Supabase SQL Editor.';
+    if (raw.contains('PGRST125') ||
+        raw.contains('Invalid path specified') ||
+        raw.contains('does not exist') ||
+        raw.contains('42P01') ||
+        raw.contains('404')) {
+      return 'Supabase database tables not found. Please click "SQL Setup" in Settings and run the SQL script in your Supabase SQL Editor.';
     }
-    if (raw.contains('401') || raw.contains('Invalid API key') || raw.contains('JWT')) {
+    if (raw.contains('401') || raw.contains('Invalid API key') || raw.contains('JWT') || raw.contains('PGRST301')) {
       return 'Authentication failed. Please verify your Supabase Project URL and Publishable Key.';
     }
     if (raw.contains('Failed host lookup') || raw.contains('ClientException')) {
