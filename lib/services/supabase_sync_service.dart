@@ -134,11 +134,13 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
 
   String _humanReadableError(String raw) {
     if (raw.contains('PGRST125') ||
+        raw.contains('PGRST204') ||
         raw.contains('Invalid path specified') ||
+        raw.contains('Could not find the') ||
         raw.contains('does not exist') ||
         raw.contains('42P01') ||
         raw.contains('404')) {
-      return 'Supabase database tables not found. Please click "SQL Setup" in Settings and run the SQL script in your Supabase SQL Editor.';
+      return 'Supabase database tables or columns missing (PGRST204/125). Please click "SQL Setup" in Settings and run the updated SQL script in your Supabase SQL Editor.';
     }
     if (raw.contains('42501') || raw.contains('permission denied')) {
       return 'Database permission denied (42501). Please click "SQL Setup" in Settings and run the updated SQL script in your Supabase SQL Editor to grant table privileges.';

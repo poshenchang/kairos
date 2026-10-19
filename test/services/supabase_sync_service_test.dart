@@ -129,6 +129,15 @@ void main() {
       expect(msg, contains('Database permission denied (42501)'));
       expect(msg, contains('SQL Setup'));
     });
+
+    test('PGRST204 missing column returns clear instructions to run SQL setup script', () {
+      final syncService = SupabaseSyncService(db, const SettingsState());
+      final msg = syncService.humanReadableError(
+        'Push categories failed (400): {"code":"PGRST204","details":null,"hint":null,"message":"Could not find the \'sync_id\' column of \'categories\' in the schema cache"}',
+      );
+      expect(msg, contains('PGRST204/125'));
+      expect(msg, contains('SQL Setup'));
+    });
   });
 }
 
