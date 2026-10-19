@@ -54,8 +54,9 @@ class _LogHabitDialogState extends ConsumerState<LogHabitDialog> {
       ),
     );
 
-    // Invalidate weekly counts so UI updates immediately
+    // Invalidate weekly and today counts so UI updates immediately
     ref.invalidate(weeklyHabitCompletionsProvider);
+    ref.invalidate(todayHabitCompletionsProvider);
 
     if (mounted) Navigator.of(context).pop();
   }

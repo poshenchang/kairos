@@ -13,6 +13,8 @@ const _kNotificationsEnabledKey = 'kairos_notifications_enabled';
 const _kWeekStartsOnSundayKey = 'kairos_week_starts_sunday';
 const _kCalendarViewKey = 'kairos_calendar_view_mode';
 const _kSuggestHabitsInFreeTimeKey = 'kairos_suggest_habits_free_time';
+const _kSupabaseUrlKey = 'kairos_supabase_url';
+const _kSupabasePublishableKey = 'kairos_supabase_publishable_key';
 
 class SettingsState {
   final ThemeMode themeMode;
@@ -21,6 +23,8 @@ class SettingsState {
   final bool weekStartsOnSunday;
   final String calendarViewMode; // 'timetable' or 'list'
   final bool suggestHabitsInFreeTime;
+  final String supabaseUrl;
+  final String supabasePublishableKey;
 
   const SettingsState({
     this.themeMode = ThemeMode.system,
@@ -29,7 +33,11 @@ class SettingsState {
     this.weekStartsOnSunday = true,
     this.calendarViewMode = 'timetable', // Timetable is default as requested!
     this.suggestHabitsInFreeTime = true,
+    this.supabaseUrl = '',
+    this.supabasePublishableKey = '',
   });
+
+  bool get isSupabaseConfigured => supabaseUrl.isNotEmpty && supabasePublishableKey.isNotEmpty;
 
   SettingsState copyWith({
     ThemeMode? themeMode,
@@ -38,6 +46,8 @@ class SettingsState {
     bool? weekStartsOnSunday,
     String? calendarViewMode,
     bool? suggestHabitsInFreeTime,
+    String? supabaseUrl,
+    String? supabasePublishableKey,
   }) {
     return SettingsState(
       themeMode: themeMode ?? this.themeMode,
@@ -46,6 +56,8 @@ class SettingsState {
       weekStartsOnSunday: weekStartsOnSunday ?? this.weekStartsOnSunday,
       calendarViewMode: calendarViewMode ?? this.calendarViewMode,
       suggestHabitsInFreeTime: suggestHabitsInFreeTime ?? this.suggestHabitsInFreeTime,
+      supabaseUrl: supabaseUrl ?? this.supabaseUrl,
+      supabasePublishableKey: supabasePublishableKey ?? this.supabasePublishableKey,
     );
   }
 }
@@ -75,6 +87,8 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     final sunday = prefs.getBool(_kWeekStartsOnSundayKey) ?? true;
     final viewMode = prefs.getString(_kCalendarViewKey) ?? 'timetable';
     final suggestHabits = prefs.getBool(_kSuggestHabitsInFreeTimeKey) ?? true;
+    final sbUrl = prefs.getString(_kSupabaseUrlKey) ?? '';
+    final sbKey = prefs.getString(_kSupabasePublishableKey) ?? '';
 
     state = SettingsState(
       themeMode: themeMode,
@@ -83,7 +97,29 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
       weekStartsOnSunday: sunday,
       calendarViewMode: viewMode,
       suggestHabitsInFreeTime: suggestHabits,
+      supabaseUrl: sbUrl,
+      supabasePublishableKey: sbKey,
     );
+  }
+
+  Future<void> setSupabaseConfig(String url, String publishableKey) async {
+    state = state.copyWith(
+      supabaseUrl: url.trim(),
+      supabasePublishableKey: publishableKey.trim(),
+    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kSupabaseUrlKey, url.trim());
+    await prefs.setString(_kSupabasePublishableKey, publishableKey.trim());
+  }
+
+  Future<void> clearSupabaseConfig() async {
+    state = state.copyWith(
+      supabaseUrl: '',
+      supabasePublishableKey: '',
+    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_kSupabaseUrlKey);
+    await prefs.remove(_kSupabasePublishableKey);
   }
 
   Future<void> setThemeMode(ThemeMode mode) async {

@@ -65,6 +65,7 @@ class EventRepository {
     DateTime rangeEnd, {
     List<Holiday> holidays = const [],
     Set<int>? holidayDaySet,
+    bool ignoreExdates = false,
   }) {
     final rule = baseEvent.rrule;
     if (rule == null || rule.isEmpty) return [];
@@ -92,6 +93,14 @@ class EventRepository {
       for (final part in params['EXDATE']!.split(',')) {
         final trimmed = part.trim();
         if (trimmed.isNotEmpty) cancelledDates.add(trimmed);
+      }
+    }
+
+    final restoredDates = <String>{};
+    if (params['RESTORED'] != null) {
+      for (final part in params['RESTORED']!.split(',')) {
+        final trimmed = part.trim();
+        if (trimmed.isNotEmpty) restoredDates.add(trimmed);
       }
     }
 
@@ -144,11 +153,8 @@ class EventRepository {
         // Format dateKey: YYYY-MM-DD
         final dateKey = '${current.year}-${current.month.toString().padLeft(2, '0')}-${current.day.toString().padLeft(2, '0')}';
 
-        // Check if this specific occurrence is temporarily cancelled
-        final isCancelled = cancelledDates.contains(dateKey);
+        final isRestored = restoredDates.contains(dateKey);
 
-        // Academic breaks & holidays: disable lectures, classes, and work routines,
-        // while allowing personal daily habits (language learning, podcasts) to continue!
         final isAcademicEvent = baseEvent.eventType == 'lecture' ||
             baseEvent.category == 'schoolwork' ||
             baseEvent.category == 'work';
@@ -157,7 +163,11 @@ class EventRepository {
                 ? activeHolidaySet.contains(current.month * 100 + current.day)
                 : _isHoliday(current, holidays));
 
-        if (!isHolidayDate && !isCancelled) {
+        // Check if this specific occurrence is temporarily cancelled (e.g. holiday or manual cancellation)
+        final isCancelled = !ignoreExdates &&
+            (cancelledDates.contains(dateKey) || (isHolidayDate && !isRestored));
+
+        if (!isCancelled) {
           if (!occurrenceStart.isBefore(rangeStart) && occurrenceStart.isBefore(rangeEnd)) {
             occurrences.add(
               baseEvent.copyWith(
@@ -297,7 +307,8 @@ class EventRepository {
 
     final dateKey = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
     final currentRule = event.rrule ?? 'FREQ=WEEKLY';
-    final newRule = addExdateToRrule(currentRule, dateKey);
+    var newRule = addExdateToRrule(currentRule, dateKey);
+    newRule = removeRestoredFromRrule(newRule, dateKey);
 
     await _dao.updateEvent(event.toCompanion(true).copyWith(
       rrule: Value(newRule),
@@ -310,7 +321,21 @@ class EventRepository {
     final event = await _dao.getEventById(eventId);
     if (event == null || !event.isRecurring || event.rrule == null) return;
 
-    final newRule = removeExdateFromRrule(event.rrule!, dateKey);
+    var newRule = removeExdateFromRrule(event.rrule!, dateKey);
+
+    // Only record RESTORED if this date falls on a holiday that would otherwise be auto-blacked out
+    final dateParts = dateKey.split('-');
+    if (dateParts.length == 3) {
+      final y = int.tryParse(dateParts[0]) ?? 2026;
+      final m = int.tryParse(dateParts[1]) ?? 1;
+      final d = int.tryParse(dateParts[2]) ?? 1;
+      final date = DateTime(y, m, d);
+      final isHol = await _holidayDao?.isHoliday(date) ?? false;
+      if (isHol) {
+        newRule = addRestoredToRrule(newRule, dateKey);
+      }
+    }
+
     await _dao.updateEvent(event.toCompanion(true).copyWith(
       rrule: Value(newRule),
       updatedAt: Value(DateTime.now().toUtc()),
@@ -343,6 +368,109 @@ class EventRepository {
     return parts.join(';');
   }
 
+  /// Adds multiple dateKeys (YYYY-MM-DD) to an RRULE's EXDATE clause.
+  static String addExdatesToRrule(String rrule, Iterable<String> dateKeys) {
+    if (dateKeys.isEmpty) return rrule;
+    final parts = rrule.split(';').toList();
+    int exdateIndex = parts.indexWhere((p) => p.startsWith('EXDATE='));
+
+    if (exdateIndex != -1) {
+      final existing = parts[exdateIndex].substring(7).split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toSet();
+      existing.addAll(dateKeys);
+      parts[exdateIndex] = 'EXDATE=${existing.join(',')}';
+    } else {
+      parts.add('EXDATE=${dateKeys.toSet().join(',')}');
+    }
+
+    return parts.join(';');
+  }
+
+  /// Returns a set of date keys ('YYYY-MM-DD') for occurrences of [event] that fall on an active holiday.
+  Future<Set<String>> getHolidayOccurrenceDatesForEvent(
+    Event event, {
+    DateTime? rangeStart,
+    DateTime? rangeEnd,
+  }) async {
+    if (!event.isRecurring || event.rrule == null || event.rrule!.isEmpty) {
+      return {};
+    }
+    final holidays = await _holidayDao?.getAllHolidays() ?? [];
+    final activeHolidays = holidays.where((h) => h.isEnabled).toList();
+    if (activeHolidays.isEmpty) return {};
+
+    final now = DateTime.now();
+    final start = rangeStart ?? DateTime(now.year, 1, 1);
+    final end = rangeEnd ?? DateTime(now.year + 2, 1, 1);
+
+    // Expand raw occurrences without checking exdates to see where they fall on holidays
+    final occurrences = expandRecurringEvents(
+      event,
+      start,
+      end,
+      ignoreExdates: true,
+    );
+
+    final holidayDates = <String>{};
+    for (final occ in occurrences) {
+      if (_isHoliday(occ.startTime, activeHolidays)) {
+        final dKey = '${occ.startTime.year}-${occ.startTime.month.toString().padLeft(2, '0')}-${occ.startTime.day.toString().padLeft(2, '0')}';
+        holidayDates.add(dKey);
+      }
+    }
+    return holidayDates;
+  }
+
+  /// Automatically cancels all recurring event occurrences that fall on active holidays
+  /// across all recurring events, adding the dates to their `EXDATE` in `rrule`.
+  Future<int> autoCancelRecurringEventsForActiveHolidays({
+    DateTime? rangeStart,
+    DateTime? rangeEnd,
+    List<Holiday>? activeHolidaysOverride,
+  }) async {
+    final holidays = activeHolidaysOverride ?? (await _holidayDao?.getAllHolidays() ?? []);
+    final activeHolidays = holidays.where((h) => h.isEnabled).toList();
+    if (activeHolidays.isEmpty) return 0;
+
+    final now = DateTime.now();
+    final start = rangeStart ?? DateTime(now.year, 1, 1);
+    final end = rangeEnd ?? DateTime(now.year + 2, 1, 1);
+
+    final allEvents = await _dao.getAllEvents();
+    final recurringEvents = allEvents.where((e) => e.isRecurring && e.rrule != null).toList();
+
+    int modifiedCount = 0;
+    for (final event in recurringEvents) {
+      final occurrences = expandRecurringEvents(
+        event,
+        start,
+        end,
+        ignoreExdates: true,
+      );
+
+      final toCancel = <String>{};
+      for (final occ in occurrences) {
+        if (_isHoliday(occ.startTime, activeHolidays)) {
+          final dKey = '${occ.startTime.year}-${occ.startTime.month.toString().padLeft(2, '0')}-${occ.startTime.day.toString().padLeft(2, '0')}';
+          toCancel.add(dKey);
+        }
+      }
+
+      if (toCancel.isNotEmpty) {
+        final currentCancelled = getCancelledDates(event.rrule).toSet();
+        final newToCancel = toCancel.difference(currentCancelled);
+        if (newToCancel.isNotEmpty) {
+          final newRule = addExdatesToRrule(event.rrule!, newToCancel);
+          await _dao.updateEvent(event.toCompanion(true).copyWith(
+            rrule: Value(newRule),
+            updatedAt: Value(DateTime.now().toUtc()),
+          ));
+          modifiedCount++;
+        }
+      }
+    }
+    return modifiedCount;
+  }
+
   /// Removes a dateKey (YYYY-MM-DD) from an RRULE's EXDATE clause.
   static String removeExdateFromRrule(String rrule, String dateKey) {
     final parts = rrule.split(';').toList();
@@ -358,6 +486,36 @@ class EventRepository {
       }
     }
 
+    return parts.join(';');
+  }
+
+  /// Adds a dateKey (YYYY-MM-DD) to an RRULE's RESTORED clause.
+  static String addRestoredToRrule(String rrule, String dateKey) {
+    final parts = rrule.split(';').toList();
+    final idx = parts.indexWhere((p) => p.startsWith('RESTORED='));
+    if (idx != -1) {
+      final existing = parts[idx].substring(9).split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toSet();
+      existing.add(dateKey);
+      parts[idx] = 'RESTORED=${existing.join(',')}';
+    } else {
+      parts.add('RESTORED=$dateKey');
+    }
+    return parts.join(';');
+  }
+
+  /// Removes a dateKey (YYYY-MM-DD) from an RRULE's RESTORED clause.
+  static String removeRestoredFromRrule(String rrule, String dateKey) {
+    final parts = rrule.split(';').toList();
+    final idx = parts.indexWhere((p) => p.startsWith('RESTORED='));
+    if (idx != -1) {
+      final existing = parts[idx].substring(9).split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toSet();
+      existing.remove(dateKey);
+      if (existing.isEmpty) {
+        parts.removeAt(idx);
+      } else {
+        parts[idx] = 'RESTORED=${existing.join(',')}';
+      }
+    }
     return parts.join(';');
   }
 

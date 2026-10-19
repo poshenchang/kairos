@@ -17,6 +17,11 @@ final allCategoriesProvider = StreamProvider<List<Category>>((ref) {
 
 // ── Events ──────────────────────────────────────────────────────────────────
 
+final allEventsStreamProvider = StreamProvider<List<Event>>((ref) {
+  final dao = ref.watch(eventDaoProvider);
+  return dao.watchAllEvents();
+});
+
 final todayEventsProvider = FutureProvider<List<Event>>((ref) async {
   final repo = ref.watch(eventRepositoryProvider);
   final now = DateTime.now();
@@ -42,9 +47,9 @@ final weekEventsProvider = FutureProvider.family<List<Event>, DateTime>((ref, we
   return repo.getExpandedEventsInRange(start, end);
 });
 
-final allEventsStreamProvider = StreamProvider<List<Event>>((ref) {
-  final dao = ref.watch(eventDaoProvider);
-  return dao.watchAllEvents();
+final holidaysForDateProvider = FutureProvider.family<List<Holiday>, DateTime>((ref, date) async {
+  final dao = ref.watch(holidayDaoProvider);
+  return dao.getHolidaysForDate(date);
 });
 
 // ── Tasks ───────────────────────────────────────────────────────────────────
@@ -69,6 +74,11 @@ final subtasksForTaskProvider = StreamProvider.family<List<Subtask>, int>((ref, 
 
 // ── Habits ──────────────────────────────────────────────────────────────────
 
+final allHabitLogsStreamProvider = StreamProvider<List<HabitLog>>((ref) {
+  final dao = ref.watch(habitDaoProvider);
+  return dao.watchAllHabitLogs();
+});
+
 final activeHabitsProvider = StreamProvider<List<Habit>>((ref) {
   final dao = ref.watch(habitDaoProvider);
   return dao.watchActiveHabits();
@@ -76,7 +86,7 @@ final activeHabitsProvider = StreamProvider<List<Habit>>((ref) {
 
 final habitCompletionsForWeekProvider = FutureProvider.family<Map<int, int>, DateTime>((ref, weekSunday) async {
   final dao = ref.watch(habitDaoProvider);
-  final start = DateTime.utc(weekSunday.year, weekSunday.month, weekSunday.day);
+  final start = DateTime(weekSunday.year, weekSunday.month, weekSunday.day);
   final end = start.add(const Duration(days: 7));
   return dao.getWeeklyCompletions(start, end);
 });
@@ -88,6 +98,14 @@ final weeklyHabitCompletionsProvider = FutureProvider<Map<int, int>>((ref) async
   return ref.watch(habitCompletionsForWeekProvider(sunday).future);
 });
 
+final todayHabitCompletionsProvider = FutureProvider<Map<int, int>>((ref) async {
+  final dao = ref.watch(habitDaoProvider);
+  final now = DateTime.now();
+  final start = DateTime(now.year, now.month, now.day);
+  final end = start.add(const Duration(days: 1));
+  return dao.getWeeklyCompletions(start, end);
+});
+
 // ── Smart Free Time & Suggestion ─────────────────────────────────────────────
 
 class SmartSuggestion {
@@ -97,6 +115,8 @@ class SmartSuggestion {
   final String actionLabel;
   final String category;
   final bool hasFreeTime;
+  final Task? task;
+  final Habit? habit;
 
   const SmartSuggestion({
     required this.freeDuration,
@@ -105,6 +125,8 @@ class SmartSuggestion {
     required this.actionLabel,
     required this.category,
     required this.hasFreeTime,
+    this.task,
+    this.habit,
   });
 }
 
@@ -113,12 +135,14 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
   final tasksAsync = ref.watch(incompleteTasksStreamProvider);
   final habitsAsync = ref.watch(activeHabitsProvider);
   final habitCountsAsync = ref.watch(weeklyHabitCompletionsProvider);
+  final todayHabitCountsAsync = ref.watch(todayHabitCompletionsProvider);
 
   final now = DateTime.now();
   final todayEvents = todayEventsAsync.value ?? [];
   final tasks = tasksAsync.value ?? [];
   final habits = habitsAsync.value ?? [];
   final habitCounts = habitCountsAsync.value ?? {};
+  final todayHabitCounts = todayHabitCountsAsync.value ?? {};
 
   // 1. Check if user is CURRENTLY in an event right now according to the timetable
   final currentEvents = todayEvents.where((e) {
@@ -196,57 +220,184 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
     );
   }
 
-  // Look for most urgent task
-  final urgentTasks = tasks
-      .where((t) => t.dueDate.isAfter(now) || t.dueDate.isBefore(now))
-      .toList()
-    ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
+  // 3. User HAS free time (>= 15 minutes).
+  // Prioritize habits and tasks with closest deadlines, including uncompleted daily habits.
+  final freeText = '${freeMinutes ~/ 60 > 0 ? '${freeMinutes ~/ 60}h ' : ''}${freeMinutes % 60}m';
 
-  if (urgentTasks.isNotEmpty) {
-    final topTask = urgentTasks.first;
-    final hoursLeft = topTask.dueDate.difference(now).inHours;
-    final urgencyText = topTask.dueDate.isBefore(now)
-        ? 'Overdue!'
-        : hoursLeft < 24
-            ? 'Due in ${hoursLeft}h'
-            : 'Due soon';
+  final candidates = <_CandidateItem>[];
 
-    return SmartSuggestion(
-      freeDuration: Duration(minutes: freeMinutes),
-      title: 'Focus: ${topTask.title}',
-      description: 'You have ${freeMinutes ~/ 60}h ${freeMinutes % 60}m free. $urgencyText.',
-      actionLabel: 'Start Focus Timer (25m)',
-      category: topTask.category,
-      hasFreeTime: true,
-    );
+  // A. Check incomplete tasks
+  for (final task in tasks) {
+    final due = task.dueDate.toLocal();
+    if (due.isBefore(now)) {
+      // Overdue task
+      final diff = now.difference(due);
+      final hoursOverdue = (diff.inMinutes / 60).round();
+      final urgencyText = diff.inMinutes < 5
+          ? 'Overdue!'
+          : hoursOverdue < 24
+              ? 'Overdue by ${hoursOverdue}h!'
+              : 'Overdue by ${(diff.inHours / 24).round()}d!';
+      candidates.add(
+        _CandidateItem(
+          effectiveDeadline: due,
+          priorityRank: 1, // Overdue tasks have highest priority
+          suggestion: SmartSuggestion(
+            freeDuration: Duration(minutes: freeMinutes),
+            title: 'Focus: ${task.title}',
+            description: 'You have $freeText free. $urgencyText (was due ${DateFormat('MMM d, h:mm a').format(due)}).',
+            actionLabel: 'Start Focus Timer (25m)',
+            category: task.category,
+            hasFreeTime: true,
+            task: task,
+          ),
+        ),
+      );
+    } else {
+      // Future task
+      final diff = due.difference(now);
+      final hoursUntil = (diff.inMinutes / 60).round();
+      final minutesUntil = diff.inMinutes;
+
+      int rank;
+      String urgencyText;
+      if (diff.inHours < 24) {
+        rank = 2; // Due within 24 hours
+        urgencyText = hoursUntil == 0
+            ? 'Due in ${minutesUntil}m (${DateFormat('h:mm a').format(due)})'
+            : 'Due in ${hoursUntil}h (${DateFormat('h:mm a').format(due)})';
+      } else if (diff.inHours < 72) {
+        final days = (diff.inHours / 24).round();
+        rank = 4; // Due within 3 days
+        urgencyText = 'Due in ${days}d (${DateFormat('EEE, h:mm a').format(due)})';
+      } else {
+        rank = 6; // Due later
+        urgencyText = 'Due ${DateFormat('MMM d').format(due)}';
+      }
+
+      candidates.add(
+        _CandidateItem(
+          effectiveDeadline: due,
+          priorityRank: rank,
+          suggestion: SmartSuggestion(
+            freeDuration: Duration(minutes: freeMinutes),
+            title: 'Focus: ${task.title}',
+            description: 'You have $freeText free. $urgencyText.',
+            actionLabel: 'Start Focus Timer (25m)',
+            category: task.category,
+            hasFreeTime: true,
+            task: task,
+          ),
+        ),
+      );
+    }
   }
 
-  // Look for habits that need attention this week
-  final pendingHabits = habits.where((h) {
-    final completed = habitCounts[h.id] ?? 0;
-    return completed < h.targetFrequencyPerWeek;
-  }).toList();
+  // B. Check active habits
+  final isWeekend = now.weekday == DateTime.saturday || now.weekday == DateTime.sunday;
+  final todayEnd = DateTime(now.year, now.month, now.day, 23, 59, 59);
 
-  if (pendingHabits.isNotEmpty) {
-    final habit = pendingHabits.first;
-    final completed = habitCounts[habit.id] ?? 0;
-    return SmartSuggestion(
-      freeDuration: Duration(minutes: freeMinutes),
-      title: 'Habit: ${habit.title}',
-      description: 'You have free time! $completed/${habit.targetFrequencyPerWeek} sessions done this week.',
-      actionLabel: 'Log Session or Start Timer',
-      category: habit.category,
-      hasFreeTime: true,
-    );
+  // End of current week (Sunday 23:59:59)
+  final daysUntilSunday = (7 - (now.weekday % 7)) % 7;
+  final weekEnd = DateTime(now.year, now.month, now.day + daysUntilSunday, 23, 59, 59);
+
+  for (final habit in habits) {
+    // Days filter check
+    if (habit.daysFilter == 'weekdays' && isWeekend) continue;
+    if (habit.daysFilter == 'weekends' && !isWeekend) continue;
+
+    final isDaily = habit.targetFrequencyPerWeek >= 7;
+    final completedToday = todayHabitCounts[habit.id] ?? 0;
+    final completedThisWeek = habitCounts[habit.id] ?? 0;
+
+    if (isDaily && completedToday == 0) {
+      // Uncompleted daily habit! Effective deadline is end of today.
+      Event? scheduledLater;
+      for (final e in todayEvents) {
+        if (!e.isDeleted &&
+            e.startTime.toLocal().isAfter(now) &&
+            e.autoScheduleSource != null &&
+            e.autoScheduleSource!.contains('habit:${habit.id}')) {
+          scheduledLater = e;
+          break;
+        }
+      }
+
+      final String desc;
+      final int rank;
+      if (scheduledLater != null) {
+        rank = 3;
+        final timeStr = DateFormat('h:mm a').format(scheduledLater.startTime.toLocal());
+        desc = 'You have $freeText free. Daily habit scheduled for $timeStr, or get ahead now.';
+      } else {
+        rank = 2; // Unscheduled daily habit is urgent for today
+        desc = 'You have $freeText free. Daily habit not yet completed today.';
+      }
+
+      candidates.add(
+        _CandidateItem(
+          effectiveDeadline: todayEnd,
+          priorityRank: rank,
+          suggestion: SmartSuggestion(
+            freeDuration: Duration(minutes: freeMinutes),
+            title: 'Daily Habit: ${habit.title}',
+            description: desc,
+            actionLabel: 'Log Session or Focus',
+            category: habit.category,
+            hasFreeTime: true,
+            habit: habit,
+          ),
+        ),
+      );
+    } else if (!isDaily && completedThisWeek < habit.targetFrequencyPerWeek) {
+      // Uncompleted weekly habit! Effective deadline is end of week.
+      candidates.add(
+        _CandidateItem(
+          effectiveDeadline: weekEnd,
+          priorityRank: 5,
+          suggestion: SmartSuggestion(
+            freeDuration: Duration(minutes: freeMinutes),
+            title: 'Habit: ${habit.title}',
+            description: 'You have $freeText free. $completedThisWeek/${habit.targetFrequencyPerWeek} sessions done this week.',
+            actionLabel: 'Log Session or Focus',
+            category: habit.category,
+            hasFreeTime: true,
+            habit: habit,
+          ),
+        ),
+      );
+    }
+  }
+
+  if (candidates.isNotEmpty) {
+    candidates.sort((a, b) {
+      final cmp = a.effectiveDeadline.compareTo(b.effectiveDeadline);
+      if (cmp != 0) return cmp;
+      return a.priorityRank.compareTo(b.priorityRank);
+    });
+
+    return candidates.first.suggestion;
   }
 
   return SmartSuggestion(
     freeDuration: Duration(minutes: freeMinutes),
     title: 'Great job! You\'re all caught up',
-    description: 'You have ${freeMinutes ~/ 60}h ${freeMinutes % 60}m of open time today.',
+    description: 'You have $freeText of open time today.',
     actionLabel: 'Plan Ahead',
     category: 'personal',
     hasFreeTime: true,
   );
 });
+
+class _CandidateItem {
+  final DateTime effectiveDeadline;
+  final int priorityRank;
+  final SmartSuggestion suggestion;
+
+  _CandidateItem({
+    required this.effectiveDeadline,
+    required this.priorityRank,
+    required this.suggestion,
+  });
+}
 

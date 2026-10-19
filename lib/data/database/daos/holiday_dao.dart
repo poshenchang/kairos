@@ -37,34 +37,30 @@ class HolidayDao extends DatabaseAccessor<AppDatabase> with _$HolidayDaoMixin {
   Future<bool> updateHoliday(HolidaysCompanion holiday) =>
       update(holidays).replace(holiday);
 
-  Future<bool> isHoliday(DateTime date) async {
-    final activeHolidays = await (select(holidays)
-          ..where((h) => h.isEnabled.equals(true)))
-        .get();
-
+  bool matchesHolidayDate(DateTime date, Holiday h) {
     final targetDate = DateTime(date.year, date.month, date.day);
-
-    for (final h in activeHolidays) {
-      if (h.endDate == null || (h.endDate!.month == h.date.month && h.endDate!.day == h.date.day)) {
-        if (targetDate.month == h.date.month && targetDate.day == h.date.day) {
-          return true;
-        }
+    if (h.endDate == null || (h.endDate!.month == h.date.month && h.endDate!.day == h.date.day)) {
+      return targetDate.month == h.date.month && targetDate.day == h.date.day;
+    } else {
+      final start = DateTime(date.year, h.date.month, h.date.day);
+      final end = DateTime(date.year, h.endDate!.month, h.endDate!.day);
+      if (end.isBefore(start)) {
+        return (targetDate.month > h.date.month || (targetDate.month == h.date.month && targetDate.day >= h.date.day)) ||
+            (targetDate.month < h.endDate!.month || (targetDate.month == h.endDate!.month && targetDate.day <= h.endDate!.day));
       } else {
-        final start = DateTime(date.year, h.date.month, h.date.day);
-        final end = DateTime(date.year, h.endDate!.month, h.endDate!.day);
-        if (end.isBefore(start)) {
-          if ((targetDate.month > h.date.month || (targetDate.month == h.date.month && targetDate.day >= h.date.day)) ||
-              (targetDate.month < h.endDate!.month || (targetDate.month == h.endDate!.month && targetDate.day <= h.endDate!.day))) {
-            return true;
-          }
-        } else {
-          if (!targetDate.isBefore(start) && !targetDate.isAfter(end)) {
-            return true;
-          }
-        }
+        return !targetDate.isBefore(start) && !targetDate.isAfter(end);
       }
     }
-    return false;
+  }
+
+  Future<List<Holiday>> getHolidaysForDate(DateTime date) async {
+    final all = await getAllHolidays();
+    return all.where((h) => h.isEnabled && matchesHolidayDate(date, h)).toList();
+  }
+
+  Future<bool> isHoliday(DateTime date) async {
+    final matching = await getHolidaysForDate(date);
+    return matching.isNotEmpty;
   }
 
   Future<void> seedDefaultHolidays(int year) async {

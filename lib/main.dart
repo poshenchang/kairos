@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:kairos/core/scheduler/scheduler_provider.dart';
 import 'package:kairos/data/database/app_database.dart';
+import 'package:kairos/data/repositories/event_repository.dart';
 import 'package:kairos/services/habit_suggestion_service.dart';
 import 'package:kairos/services/notification_service.dart';
 import 'package:kairos/services/settings_service.dart';
@@ -150,6 +151,8 @@ class _KairosAppState extends ConsumerState<KairosApp> {
 
     // Seed default holidays if empty
     await db.holidayDao.seedDefaultHolidays(DateTime.now().year);
+    final eventRepo = EventRepository(db.eventDao, db.holidayDao);
+    await eventRepo.autoCancelRecurringEventsForActiveHolidays();
   }
 
   @override

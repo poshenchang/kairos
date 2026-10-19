@@ -33,7 +33,14 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _supabaseUrlController = TextEditingController();
   final _supabaseKeyController = TextEditingController();
-  bool _isSyncConfigured = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final settings = ref.read(settingsNotifierProvider);
+    _supabaseUrlController.text = settings.supabaseUrl;
+    _supabaseKeyController.text = settings.supabasePublishableKey;
+  }
 
   @override
   void dispose() {
@@ -407,8 +414,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           label: const Text('Load Standard Academic & Regional Holidays'),
                           onPressed: () async {
                             await holidayDao.seedDefaultHolidays(DateTime.now().year);
+                            await ref.read(eventRepositoryProvider).autoCancelRecurringEventsForActiveHolidays();
                             ref.invalidate(selectedDateEventsProvider);
                             ref.invalidate(todayEventsProvider);
+                            ref.invalidate(allEventsStreamProvider);
                           },
                         ),
                       ],
@@ -484,8 +493,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               value: allActive,
                               onChanged: (val) async {
                                 await holidayDao.toggleHolidayGroup(groupName, val);
+                                if (val) {
+                                  await ref.read(eventRepositoryProvider).autoCancelRecurringEventsForActiveHolidays();
+                                }
                                 ref.invalidate(selectedDateEventsProvider);
                                 ref.invalidate(todayEventsProvider);
+                                ref.invalidate(allEventsStreamProvider);
                               },
                             ),
                           ],
@@ -514,8 +527,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                     value: h.isEnabled,
                                     onChanged: (val) async {
                                       await holidayDao.toggleHoliday(h.id, val);
+                                      if (val) {
+                                        await ref.read(eventRepositoryProvider).autoCancelRecurringEventsForActiveHolidays();
+                                      }
                                       ref.invalidate(selectedDateEventsProvider);
                                       ref.invalidate(todayEventsProvider);
+                                      ref.invalidate(allEventsStreamProvider);
                                     },
                                   ),
                                   IconButton(
@@ -650,8 +667,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       isEnabled: const Value(true),
                     ),
                   );
+                  await ref.read(eventRepositoryProvider).autoCancelRecurringEventsForActiveHolidays();
                   ref.invalidate(selectedDateEventsProvider);
                   ref.invalidate(todayEventsProvider);
+                  ref.invalidate(allEventsStreamProvider);
                   if (dialogContext.mounted) {
                     Navigator.of(dialogContext).pop();
                   }
@@ -765,8 +784,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       endDate: endDate != null ? Value(endDate!) : const Value(null),
                     ),
                   );
+                  await ref.read(eventRepositoryProvider).autoCancelRecurringEventsForActiveHolidays();
                   ref.invalidate(selectedDateEventsProvider);
                   ref.invalidate(todayEventsProvider);
+                  ref.invalidate(allEventsStreamProvider);
                   if (dialogContext.mounted) {
                     Navigator.of(dialogContext).pop();
                   }
@@ -781,6 +802,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Widget _buildSupabaseSyncCard(BuildContext context) {
+    final settings = ref.watch(settingsNotifierProvider);
+    final isConnected = settings.isSupabaseConfigured;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -813,21 +837,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 const Spacer(),
                 Text(
-                  _isSyncConfigured ? 'Connected' : 'Offline Mode',
+                  isConnected ? 'Connected' : 'Offline Mode',
                   style: TextStyle(
                     fontSize: 12,
-                    color: _isSyncConfigured ? Colors.green : Colors.grey,
+                    color: isConnected ? Colors.green : Colors.grey,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 12),
-            const Text(
-              'Sync Across Linux Desktop & iOS Devices',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+            Row(
+              children: [
+                const Text(
+                  'Sync Across Linux Desktop & iOS Devices',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                ),
+                const SizedBox(width: 4),
+                IconButton(
+                  icon: const Icon(Icons.help_outline, size: 18, color: Colors.blueAccent),
+                  tooltip: 'How to obtain Supabase API keys',
+                  onPressed: () => _showSupabaseInstructionsDialog(context),
+                ),
+              ],
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             const Text(
               'Supabase provides a generous free PostgreSQL database (500 MB storage, real-time sync, 50,000 active users) with zero credit card required. Kairos remains 100% functional offline with Drift SQLite.',
               style: TextStyle(fontSize: 12, height: 1.45, color: Colors.grey),
@@ -846,11 +880,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             TextField(
               controller: _supabaseKeyController,
               obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Supabase Anon Public API Key',
-                hintText: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: 'Supabase Publishable API Key',
+                hintText: 'sb_publishable_... (or legacy anon key)',
+                border: const OutlineInputBorder(),
                 isDense: true,
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.help_outline, size: 18),
+                  tooltip: 'How to obtain this key',
+                  onPressed: () => _showSupabaseInstructionsDialog(context),
+                ),
               ),
             ),
             const SizedBox(height: 14),
@@ -859,33 +898,40 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ElevatedButton.icon(
                   icon: const Icon(Icons.cloud_done_outlined, size: 18),
                   label: const Text('Save & Connect Sync'),
-                  onPressed: () {
+                  onPressed: () async {
                     final url = _supabaseUrlController.text.trim();
                     final key = _supabaseKeyController.text.trim();
                     if (url.isEmpty || key.isEmpty) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('Please enter your Supabase URL and Anon Key from your Supabase dashboard.'),
+                          content: Text('Please enter your Supabase URL and Publishable Key from your Supabase dashboard.'),
                         ),
                       );
                       return;
                     }
-                    setState(() => _isSyncConfigured = true);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Supabase credentials saved! Sync connector activated.'),
-                      ),
-                    );
+                    await ref.read(settingsNotifierProvider.notifier).setSupabaseConfig(url, key);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Supabase credentials saved! Sync configuration updated.'),
+                        ),
+                      );
+                    }
                   },
                 ),
                 const SizedBox(width: 12),
                 OutlinedButton(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Running local SQLite mode. All events, habits, and tasks stored securely on your machine.'),
-                      ),
-                    );
+                  onPressed: () async {
+                    await ref.read(settingsNotifierProvider.notifier).clearSupabaseConfig();
+                    _supabaseUrlController.clear();
+                    _supabaseKeyController.clear();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Switched to local SQLite mode. Sync credentials removed.'),
+                        ),
+                      );
+                    }
                   },
                   child: const Text('Use Local Only'),
                 ),
@@ -893,6 +939,151 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showSupabaseInstructionsDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.key, color: Colors.blueAccent),
+            SizedBox(width: 8),
+            Text('How to Get Supabase API Keys', style: TextStyle(fontSize: 16)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Supabase provides a free cloud PostgreSQL backend to sync Kairos across Linux, iOS, and other devices without a credit card.',
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.4,
+                  color: Theme.of(ctx).colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Steps to obtain your keys:',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: Theme.of(ctx).colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 8),
+              _buildInstructionStep(
+                ctx,
+                number: '1',
+                title: 'Create a free project',
+                description: 'Sign up or log in at https://supabase.com and create a new project.',
+              ),
+              _buildInstructionStep(
+                ctx,
+                number: '2',
+                title: 'Open API settings',
+                description: 'In your project dashboard, click the Settings (gear icon) in the bottom-left, then select "API Keys" (under Configuration).',
+              ),
+              _buildInstructionStep(
+                ctx,
+                number: '3',
+                title: 'Copy Project URL',
+                description: 'Copy the Project URL (e.g. https://xyzcompany.supabase.co) and paste it into the URL field.',
+              ),
+              _buildInstructionStep(
+                ctx,
+                number: '4',
+                title: 'Copy Publishable Key',
+                description: 'Under the "Publishable and secret API keys" tab, copy the Publishable API Key (starts with sb_publishable_..., or legacy anon key).',
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.shield_outlined, size: 18, color: Colors.amber),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Important: Why Publishable Key?\nSupabase is deprecating legacy "anon" and "service_role" keys. The new Publishable key (sb_publishable_...) is safe to use in client apps because permissions are governed by Row Level Security (RLS).\n\nNEVER enter a Secret key (sb_secret_... or service_role) here.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          height: 1.35,
+                          color: Theme.of(ctx).colorScheme.onSurface,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Got it'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInstructionStep(
+    BuildContext context, {
+    required String number,
+    required String title,
+    required String description,
+  }) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 10,
+            backgroundColor: Colors.blueAccent.withValues(alpha: 0.2),
+            child: Text(
+              number,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: Colors.blueAccent,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text.rich(
+              TextSpan(
+                style: TextStyle(
+                  fontSize: 12,
+                  color: theme.colorScheme.onSurface,
+                  height: 1.3,
+                ),
+                children: [
+                  TextSpan(
+                    text: '$title: ',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  TextSpan(text: description),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -68,6 +68,7 @@ class DashboardScreen extends ConsumerWidget {
           ref.invalidate(dashboardTasksProvider);
           ref.invalidate(activeHabitsProvider);
           ref.invalidate(weeklyHabitCompletionsProvider);
+          ref.invalidate(todayHabitCompletionsProvider);
         },
 
         child: SingleChildScrollView(
@@ -188,6 +189,21 @@ class DashboardScreen extends ConsumerWidget {
                 },
               ),
               const SizedBox(width: 12),
+              if (suggestion.habit != null) ...[
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.check_circle_outline, color: Colors.white, size: 16),
+                  label: const Text('Log Session', style: TextStyle(color: Colors.white)),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.white54),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                  onPressed: () {
+                    LogHabitDialog.show(context, suggestion.habit!);
+                  },
+                ),
+                const SizedBox(width: 12),
+              ],
               OutlinedButton.icon(
                 icon: const Icon(Icons.calendar_month, color: Colors.white, size: 16),
                 label: const Text('View Calendar', style: TextStyle(color: Colors.white)),
@@ -232,14 +248,14 @@ class DashboardScreen extends ConsumerWidget {
           error: (err, _) => Text('Error loading tasks: $err'),
           data: (tasks) {
             if (tasks.isEmpty) {
-              return Card(
+              return const Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(16.0),
+                  padding: EdgeInsets.all(16.0),
                   child: Row(
                     children: [
-                      const Icon(Icons.done_all, color: Colors.green),
-                      const SizedBox(width: 12),
-                      const Text('No outstanding deadlines! You\'re up to date.'),
+                      Icon(Icons.done_all, color: Colors.green),
+                      SizedBox(width: 12),
+                      Text('No outstanding deadlines! You\'re up to date.'),
                     ],
                   ),
                 ),
@@ -539,14 +555,14 @@ class DashboardScreen extends ConsumerWidget {
             final counts = countsAsync.value ?? {};
 
             if (habits.isEmpty) {
-              return Card(
+              return const Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(16.0),
+                  padding: EdgeInsets.all(16.0),
                   child: Row(
                     children: [
-                      const Icon(Icons.repeat, color: Colors.grey),
-                      const SizedBox(width: 12),
-                      const Expanded(
+                      Icon(Icons.repeat, color: Colors.grey),
+                      SizedBox(width: 12),
+                      Expanded(
                         child: Text('No habits created yet (e.g. personal research, instrument practice).'),
                       ),
                     ],

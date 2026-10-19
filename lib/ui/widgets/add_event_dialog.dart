@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:kairos/data/database/app_database.dart';
+import 'package:kairos/data/repositories/event_repository.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/form_defaults_service.dart';
 import 'package:kairos/services/notification_service.dart';
@@ -197,6 +198,31 @@ class _AddEventDialogState extends ConsumerState<AddEventDialog> {
         rrule = '$baseRule;COUNT=$_repeatCount';
       } else {
         rrule = baseRule;
+      }
+
+      // Automatically cancel occurrences falling on active holidays as temporary cancellations
+      final eventRepo = ref.read(eventRepositoryProvider);
+      final tempEvent = Event(
+        id: -1,
+        title: _titleController.text.trim(),
+        category: _selectedCategory,
+        eventType: _selectedCategory,
+        startTime: startDateTime,
+        endTime: endDateTime,
+        isRecurring: true,
+        rrule: rrule,
+        requiresPrep: false,
+        prepMinutes: null,
+        notes: null,
+        isAutoScheduled: false,
+        autoScheduleSource: null,
+        isDeleted: false,
+        createdAt: DateTime.now().toUtc(),
+        updatedAt: DateTime.now().toUtc(),
+      );
+      final holidayDates = await eventRepo.getHolidayOccurrenceDatesForEvent(tempEvent);
+      if (holidayDates.isNotEmpty) {
+        rrule = EventRepository.addExdatesToRrule(rrule, holidayDates);
       }
     }
 

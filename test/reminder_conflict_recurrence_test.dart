@@ -212,4 +212,84 @@ void main() {
       expect(service.lastHabitTime?.hour, 7);
     });
   });
+
+  group('Holiday Auto-Cancellation as Temporary Cancellation', () {
+    test('autoCancelRecurringEventsForActiveHolidays adds EXDATE for holiday occurrences', () async {
+      // 1. Insert a holiday on Friday Oct 23
+      final holidayDate = DateTime(2026, 10, 23);
+      await db.holidayDao.insertHoliday(
+        HolidaysCompanion.insert(
+          name: 'Mid-Autumn Festival',
+          groupName: const Value('Taiwanese Holidays'),
+          date: holidayDate,
+          isEnabled: const Value(true),
+        ),
+      );
+
+      // 2. Insert a weekly recurring event every Friday starting Oct 16
+      final eventId = await db.eventDao.insertEvent(
+        EventsCompanion.insert(
+          title: 'Weekly Seminar',
+          category: const Value('schoolwork'),
+          eventType: const Value('lecture'),
+          startTime: DateTime(2026, 10, 16, 14, 0),
+          endTime: DateTime(2026, 10, 16, 16, 0),
+          isRecurring: const Value(true),
+          rrule: const Value('FREQ=WEEKLY;BYDAY=FR'),
+        ),
+      );
+
+      // 3. Run autoCancelRecurringEventsForActiveHolidays
+      final modified = await eventRepo.autoCancelRecurringEventsForActiveHolidays(
+        rangeStart: DateTime(2026, 10, 1),
+        rangeEnd: DateTime(2026, 11, 1),
+      );
+      expect(modified, equals(1));
+
+      // 4. Verify EXDATE contains 2026-10-23
+      final event = await db.eventDao.getEventById(eventId);
+      expect(event!.rrule, contains('EXDATE=2026-10-23'));
+
+      // 5. Expand events on the holiday week (Oct 18 - Oct 25)
+      final weekEvents = await eventRepo.getExpandedEventsInRange(
+        DateTime(2026, 10, 18),
+        DateTime(2026, 10, 25),
+      );
+      // Oct 23 occurrence is hidden
+      expect(weekEvents.where((e) => e.startTime.day == 23), isEmpty);
+
+      // 6. Restore the occurrence (as done in All Events subpanel)
+      await eventRepo.restoreRecurringOccurrence(eventId, '2026-10-23');
+      final restoredEvent = await db.eventDao.getEventById(eventId);
+      expect(EventRepository.getCancelledDates(restoredEvent!.rrule), isEmpty);
+
+      // 7. Re-expand: Oct 23 occurrence reappears!
+      final reExpanded = await eventRepo.getExpandedEventsInRange(
+        DateTime(2026, 10, 18),
+        DateTime(2026, 10, 25),
+      );
+      expect(reExpanded.where((e) => e.startTime.day == 23).length, equals(1));
+    });
+
+    test('getHolidaysForDate matches single-day and multi-day holiday breaks', () async {
+      await db.holidayDao.insertHoliday(
+        HolidaysCompanion.insert(
+          name: 'Spring Break',
+          groupName: const Value('Academic Breaks'),
+          date: DateTime(2026, 3, 16),
+          endDate: Value(DateTime(2026, 3, 20)),
+          isEnabled: const Value(true),
+        ),
+      );
+
+      // Match within break
+      final inBreak = await db.holidayDao.getHolidaysForDate(DateTime(2026, 3, 18));
+      expect(inBreak.length, equals(1));
+      expect(inBreak.first.name, equals('Spring Break'));
+
+      // No match outside break
+      final outsideBreak = await db.holidayDao.getHolidaysForDate(DateTime(2026, 3, 25));
+      expect(outsideBreak, isEmpty);
+    });
+  });
 }

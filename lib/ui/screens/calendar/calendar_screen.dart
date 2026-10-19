@@ -187,6 +187,9 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                               loading: () => const Center(child: CircularProgressIndicator()),
                               error: (err, _) => Center(child: Text('Error: $err')),
                               data: (events) {
+                                final holidaysAsync = ref.watch(holidaysForDateProvider(selectedDate));
+                                final dayHolidays = holidaysAsync.value ?? [];
+
                                 final filtered = (_selectedCategoryFilter == null
                                     ? List<Event>.from(events)
                                     : events
@@ -201,7 +204,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                                     return a.startTime.compareTo(b.startTime);
                                   });
 
-                                if (filtered.isEmpty) {
+                                if (filtered.isEmpty && dayHolidays.isEmpty) {
                                   return Center(
                                     child: Column(
                                       mainAxisAlignment: MainAxisAlignment.center,
@@ -222,11 +225,30 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                                   );
                                 }
 
+                                final totalCount = dayHolidays.length +
+                                    filtered.length +
+                                    (filtered.isEmpty && dayHolidays.isNotEmpty ? 1 : 0);
+
                                 return ListView.builder(
                                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                  itemCount: filtered.length,
+                                  itemCount: totalCount,
                                   itemBuilder: (context, index) {
-                                    final event = filtered[index];
+                                    if (index < dayHolidays.length) {
+                                      return _buildHolidayCard(dayHolidays[index]);
+                                    }
+                                    if (filtered.isEmpty) {
+                                      return const Padding(
+                                        padding: EdgeInsets.symmetric(vertical: 24),
+                                        child: Center(
+                                          child: Text(
+                                            'No other scheduled events on this holiday.',
+                                            style: TextStyle(color: Colors.grey, fontSize: 13),
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                    final eventIndex = index - dayHolidays.length;
+                                    final event = filtered[eventIndex];
                                     return _buildEventCard(event, categories);
                                   },
                                 );
@@ -365,6 +387,72 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
             );
           }),
         ],
+      ),
+    );
+  }
+
+  String _formatHolidayCategory(String groupName) {
+    final lower = groupName.toLowerCase();
+    if (lower.endsWith('holidays')) {
+      return groupName.substring(0, groupName.length - 1);
+    }
+    if (lower.endsWith('breaks')) {
+      return groupName.substring(0, groupName.length - 1);
+    }
+    return groupName;
+  }
+
+  Widget _buildHolidayCard(Holiday h) {
+    final catName = _formatHolidayCategory(h.groupName);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      color: Colors.redAccent.withValues(alpha: 0.06),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.25)),
+      ),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: Colors.redAccent.withValues(alpha: 0.15),
+          child: const Icon(Icons.celebration, color: Colors.redAccent, size: 20),
+        ),
+        title: Text(
+          '$catName: ${h.name}',
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 2),
+            const Text(
+              'All-day • Holiday',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.beach_access, size: 10, color: Colors.redAccent),
+                      SizedBox(width: 4),
+                      Text(
+                        'All-Day Holiday',
+                        style: TextStyle(fontSize: 10, color: Colors.redAccent, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -59,6 +59,8 @@ class HabitDao extends DatabaseAccessor<AppDatabase> with _$HabitDaoMixin {
     return query.get();
   }
 
+  Stream<List<HabitLog>> watchAllHabitLogs() => select(habitLogs).watch();
+
   // ── Mutations ─────────────────────────────────────────────────────────────
 
   Future<int> insertHabit(HabitsCompanion companion) =>

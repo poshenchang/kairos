@@ -56,10 +56,13 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
     final allEvents = allEventsAsync.value ?? [];
 
     // Filter upcoming events that require preparation (Exams, Interviews, Presentations)
+    // Automatically disappears from sidebar once the exam or interview event ends.
+    final now = DateTime.now();
     final prepEvents = allEvents.where((e) {
-      return e.requiresPrep &&
+      return !e.isDeleted &&
+          e.requiresPrep &&
           !e.isAutoScheduled &&
-          e.startTime.isAfter(DateTime.now().subtract(const Duration(hours: 2)));
+          e.endTime.isAfter(now);
     }).toList()
       ..sort((a, b) => a.startTime.compareTo(b.startTime));
 
@@ -708,7 +711,12 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
     bool isDark,
   ) {
     final taskEvents = allEvents.where((e) {
-      return e.autoScheduleSource?.startsWith('task:${task.id}') == true;
+      if (e.isDeleted) return false;
+      if (e.autoScheduleSource?.startsWith('task:${task.id}') != true) return false;
+      if (task.completedAt != null && e.endTime.isBefore(task.completedAt!)) {
+        return false;
+      }
+      return true;
     }).toList();
 
     int scheduledMinutes = 0;

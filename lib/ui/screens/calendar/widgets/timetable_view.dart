@@ -466,14 +466,16 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                   }
 
                   return InkWell(
-                    onTap: () {
+                    onTap: () async {
+                      widget.onDateSelected(day);
                       final initialStart = DateTime(day.year, day.month, day.day, hour, minute);
-                      AddEventDialog.show(
+                      await AddEventDialog.show(
                         context,
                         initialDate: initialStart,
                         initialStartTime: TimeOfDay(hour: hour, minute: minute),
                         initialEndTime: TimeOfDay(hour: (hour + 1) % 24, minute: minute),
                       );
+                      _refreshEvents();
                     },
                     child: const SizedBox.expand(),
                   );
@@ -482,6 +484,8 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                   final item = details.data;
                   final startTime = DateTime(day.year, day.month, day.day, hour, minute);
                   final endTime = startTime.add(Duration(minutes: item.durationMinutes));
+
+                  widget.onDateSelected(day);
 
                   final eventDao = ref.read(eventDaoProvider);
                   final notificationService = ref.read(notificationServiceProvider);
@@ -507,7 +511,7 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                   ref.invalidate(selectedDateEventsProvider);
                   ref.invalidate(todayEventsProvider);
                   ref.invalidate(allEventsStreamProvider);
-                  if (mounted) setState(() {});
+                  _refreshEvents();
 
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).clearSnackBars();
@@ -540,7 +544,7 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                           ref.invalidate(selectedDateEventsProvider);
                           ref.invalidate(todayEventsProvider);
                           ref.invalidate(allEventsStreamProvider);
-                          if (mounted) setState(() {});
+                          _refreshEvents();
                         },
                       ),
                     );
@@ -695,9 +699,13 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                 IconButton(
                   icon: const Icon(Icons.edit_outlined, color: Colors.blueAccent),
                   tooltip: 'Edit Event',
-                  onPressed: () {
+                  onPressed: () async {
                     Navigator.of(sheetContext).pop();
-                    EditEventDialog.show(context, event, occurrenceDate: event.startTime);
+                    await EditEventDialog.show(context, event, occurrenceDate: event.startTime);
+                    ref.invalidate(selectedDateEventsProvider);
+                    ref.invalidate(todayEventsProvider);
+                    ref.invalidate(allEventsStreamProvider);
+                    _refreshEvents();
                   },
                 ),
                 IconButton(
@@ -706,7 +714,10 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                   onPressed: () async {
                     Navigator.of(sheetContext).pop();
                     await ref.read(eventDaoProvider).deleteEvent(event.id);
-                    if (mounted) setState(() {});
+                    ref.invalidate(selectedDateEventsProvider);
+                    ref.invalidate(todayEventsProvider);
+                    ref.invalidate(allEventsStreamProvider);
+                    _refreshEvents();
                   },
                 ),
               ],
@@ -774,6 +785,7 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                     ref.invalidate(selectedDateEventsProvider);
                     ref.invalidate(todayEventsProvider);
                     ref.invalidate(allEventsStreamProvider);
+                    _refreshEvents();
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
