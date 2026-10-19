@@ -970,6 +970,38 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 ref.invalidate(selectedDateEventsProvider);
                                 ref.invalidate(todayEventsProvider);
                                 ref.invalidate(allEventsStreamProvider);
+                                ref.read(supabaseSyncServiceProvider.notifier).syncNow();
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete_sweep_outlined, size: 20, color: Colors.grey),
+                              tooltip: 'Delete Group "$groupName"',
+                              onPressed: () async {
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: Text('Delete $groupName?'),
+                                    content: Text('Are you sure you want to delete all ${groupHolidays.length} holidays in "$groupName"? This will be permanently synced to your cloud account.'),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.of(ctx).pop(false),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      FilledButton(
+                                        onPressed: () => Navigator.of(ctx).pop(true),
+                                        style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                                        child: const Text('Delete Group'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (confirm == true) {
+                                  await holidayDao.deleteHolidayGroup(groupName);
+                                  ref.invalidate(selectedDateEventsProvider);
+                                  ref.invalidate(todayEventsProvider);
+                                  ref.invalidate(allEventsStreamProvider);
+                                  ref.read(supabaseSyncServiceProvider.notifier).syncNow();
+                                }
                               },
                             ),
                           ],
@@ -1004,6 +1036,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                       ref.invalidate(selectedDateEventsProvider);
                                       ref.invalidate(todayEventsProvider);
                                       ref.invalidate(allEventsStreamProvider);
+                                      ref.read(supabaseSyncServiceProvider.notifier).syncNow();
                                     },
                                   ),
                                   IconButton(
@@ -1018,6 +1051,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                       await holidayDao.deleteHoliday(h.id);
                                       ref.invalidate(selectedDateEventsProvider);
                                       ref.invalidate(todayEventsProvider);
+                                      ref.invalidate(allEventsStreamProvider);
+                                      ref.read(supabaseSyncServiceProvider.notifier).syncNow();
                                     },
                                   ),
                                 ],
@@ -1142,6 +1177,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ref.invalidate(selectedDateEventsProvider);
                   ref.invalidate(todayEventsProvider);
                   ref.invalidate(allEventsStreamProvider);
+                  ref.read(supabaseSyncServiceProvider.notifier).syncNow();
                   if (dialogContext.mounted) {
                     Navigator.of(dialogContext).pop();
                   }
@@ -1259,6 +1295,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ref.invalidate(selectedDateEventsProvider);
                   ref.invalidate(todayEventsProvider);
                   ref.invalidate(allEventsStreamProvider);
+                  ref.read(supabaseSyncServiceProvider.notifier).syncNow();
                   if (dialogContext.mounted) {
                     Navigator.of(dialogContext).pop();
                   }

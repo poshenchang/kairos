@@ -3,6 +3,7 @@
 // Data-access object for Holidays and Academic Breaks.
 
 import 'package:drift/drift.dart';
+import 'package:uuid/uuid.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/database/tables/holidays_table.dart';
 
@@ -13,29 +14,62 @@ class HolidayDao extends DatabaseAccessor<AppDatabase> with _$HolidayDaoMixin {
   HolidayDao(super.db);
 
   Future<List<Holiday>> getAllHolidays() =>
-      (select(holidays)..orderBy([(h) => OrderingTerm.asc(h.date)])).get();
+      (select(holidays)
+            ..where((h) => h.isDeleted.equals(false))
+            ..orderBy([(h) => OrderingTerm.asc(h.date)]))
+          .get();
 
   Stream<List<Holiday>> watchAllHolidays() =>
-      (select(holidays)..orderBy([(h) => OrderingTerm.asc(h.date)])).watch();
+      (select(holidays)
+            ..where((h) => h.isDeleted.equals(false))
+            ..orderBy([(h) => OrderingTerm.asc(h.date)]))
+          .watch();
 
-  Future<int> insertHoliday(HolidaysCompanion holiday) =>
-      into(holidays).insert(holiday);
+  Future<int> insertHoliday(HolidaysCompanion holiday) {
+    final now = DateTime.now().toUtc();
+    final companion = holiday.copyWith(
+      syncId: holiday.syncId.present && holiday.syncId.value != null && holiday.syncId.value!.isNotEmpty
+          ? holiday.syncId
+          : Value(const Uuid().v4()),
+      updatedAt: Value(now),
+    );
+    return into(holidays).insert(companion);
+  }
 
-  Future<int> deleteHoliday(int id) =>
-      (delete(holidays)..where((h) => h.id.equals(id))).go();
+  Future<int> deleteHoliday(int id) => (update(holidays)
+        ..where((h) => h.id.equals(id)))
+      .write(HolidaysCompanion(
+        isDeleted: const Value(true),
+        updatedAt: Value(DateTime.now().toUtc()),
+      ));
+
+  Future<int> deleteHolidayGroup(String groupName) => (update(holidays)
+        ..where((h) => h.groupName.equals(groupName)))
+      .write(HolidaysCompanion(
+        isDeleted: const Value(true),
+        updatedAt: Value(DateTime.now().toUtc()),
+      ));
 
   Future<int> toggleHoliday(int id, bool isEnabled) =>
       (update(holidays)..where((h) => h.id.equals(id))).write(
-        HolidaysCompanion(isEnabled: Value(isEnabled)),
+        HolidaysCompanion(
+          isEnabled: Value(isEnabled),
+          updatedAt: Value(DateTime.now().toUtc()),
+        ),
       );
 
   Future<int> toggleHolidayGroup(String groupName, bool isEnabled) =>
-      (update(holidays)..where((h) => h.groupName.equals(groupName))).write(
-        HolidaysCompanion(isEnabled: Value(isEnabled)),
+      (update(holidays)..where((h) => h.groupName.equals(groupName) & h.isDeleted.equals(false))).write(
+        HolidaysCompanion(
+          isEnabled: Value(isEnabled),
+          updatedAt: Value(DateTime.now().toUtc()),
+        ),
       );
 
   Future<bool> updateHoliday(HolidaysCompanion holiday) =>
-      update(holidays).replace(holiday);
+      update(holidays).replace(
+        holiday.copyWith(updatedAt: Value(DateTime.now().toUtc())),
+      );
 
   bool matchesHolidayDate(DateTime date, Holiday h) {
     final targetDate = DateTime(date.year, date.month, date.day);

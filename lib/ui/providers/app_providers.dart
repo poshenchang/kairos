@@ -199,26 +199,17 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
     ..sort((a, b) => a.startTime.compareTo(b.startTime));
 
   final nextEvent = upcomingEvents.isNotEmpty ? upcomingEvents.first : null;
-  final freeUntil = nextEvent?.startTime.toLocal() ?? DateTime(now.year, now.month, now.day, 22, 0);
-  final freeMinutes = freeUntil.difference(now).inMinutes;
+  final freeMinutes = nextEvent != null
+      ? nextEvent.startTime.toLocal().difference(now).inMinutes
+      : 120;
 
-  if (freeMinutes < 15) {
-    if (nextEvent != null) {
-      return SmartSuggestion(
-        freeDuration: Duration(minutes: freeMinutes.clamp(0, 15)),
-        title: 'Upcoming: ${nextEvent.title}',
-        description: 'Starts in $freeMinutes minutes (${DateFormat('h:mm a').format(nextEvent.startTime.toLocal())}). Prepare your materials.',
-        actionLabel: 'View Event',
-        category: nextEvent.category,
-        hasFreeTime: false,
-      );
-    }
-    return const SmartSuggestion(
-      freeDuration: Duration.zero,
-      title: 'Rest & Recharge',
-      description: 'No active events right now. Take a short breather.',
-      actionLabel: 'Check Tomorrow',
-      category: 'personal',
+  if (nextEvent != null && freeMinutes < 15) {
+    return SmartSuggestion(
+      freeDuration: Duration(minutes: freeMinutes.clamp(0, 15)),
+      title: 'Upcoming: ${nextEvent.title}',
+      description: 'Starts in $freeMinutes minutes (${DateFormat('h:mm a').format(nextEvent.startTime.toLocal())}). Prepare your materials.',
+      actionLabel: 'View Event',
+      category: nextEvent.category,
       hasFreeTime: false,
     );
   }

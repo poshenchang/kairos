@@ -863,7 +863,9 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
     await _db.transaction(() async {
       for (final remote in remoteMap.values) {
         final syncId = remote['sync_id'] as String;
-        final remoteUpdatedAt = DateTime.parse(remote['updated_at'] as String);
+        final remoteUpdatedAt = remote['updated_at'] != null
+            ? DateTime.parse(remote['updated_at'] as String)
+            : DateTime.now().toUtc();
         final local = localMap[syncId];
 
         if (local == null) {
@@ -879,7 +881,7 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
                   updatedAt: Value(remoteUpdatedAt),
                 ),
               );
-        } else if (remoteUpdatedAt.isAfter(local.updatedAt)) {
+        } else if (remoteUpdatedAt.isAfter(local.updatedAt.toUtc())) {
           await (_db.update(_db.holidays)..where((tbl) => tbl.id.equals(local.id))).write(
             HolidaysCompanion(
               name: Value(remote['name'] as String),
@@ -896,7 +898,7 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
 
       for (final local in localList) {
         final remote = remoteMap[local.syncId!];
-        if (remote == null || local.updatedAt.isAfter(DateTime.parse(remote['updated_at'] as String))) {
+        if (remote == null || local.updatedAt.toUtc().isAfter(DateTime.parse(remote['updated_at'] as String).toUtc())) {
           toPush.add({
             'sync_id': local.syncId,
             'name': local.name,
@@ -905,7 +907,7 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
             'end_date': local.endDate != null ? TimezoneService.instance.formatForRemoteSync(local.endDate!) : null,
             'is_enabled': local.isEnabled,
             'is_deleted': local.isDeleted,
-            'updated_at': local.updatedAt.toIso8601String(),
+            'updated_at': local.updatedAt.toUtc().toIso8601String(),
           });
         }
       }

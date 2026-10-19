@@ -69,6 +69,22 @@ class TimezoneService {
     return DateTime.now().timeZoneOffset;
   }
 
+  /// Returns the current time adjusted for the configured timezone settings.
+  /// If [SettingsState.timezoneMode] is 'manual', adjusts from system clock
+  /// to the configured manual timezone offset.
+  DateTime now([SettingsState? settings]) {
+    final sysNow = DateTime.now();
+    if (settings != null && settings.timezoneMode == 'manual') {
+      final sysOffsetMinutes = sysNow.timeZoneOffset.inMinutes;
+      final manualOffsetMinutes = settings.manualTimezoneOffsetMinutes;
+      final diffMinutes = manualOffsetMinutes - sysOffsetMinutes;
+      if (diffMinutes != 0) {
+        return sysNow.add(Duration(minutes: diffMinutes));
+      }
+    }
+    return sysNow;
+  }
+
   /// Formatted label of the detected system timezone (e.g. "UTC+08:00 (CST)")
   String getDetectedTimezoneLabel() {
     final offset = DateTime.now().timeZoneOffset;
