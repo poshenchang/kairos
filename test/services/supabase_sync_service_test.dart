@@ -120,6 +120,15 @@ void main() {
       );
       expect(msg, contains('SQL Setup'));
     });
+
+    test('42501 permission denied returns clear instructions to grant privileges', () {
+      final syncService = SupabaseSyncService(db, const SettingsState());
+      final msg = syncService.humanReadableError(
+        'Categories sync failed (401): {"code":"42501","details":null,"hint":"Grant the required privileges to the current role with: GRANT SELECT ON public.categories TO anon;","message":"permission denied for table categories"}',
+      );
+      expect(msg, contains('Database permission denied (42501)'));
+      expect(msg, contains('SQL Setup'));
+    });
   });
 }
 

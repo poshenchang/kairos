@@ -140,6 +140,9 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
         raw.contains('404')) {
       return 'Supabase database tables not found. Please click "SQL Setup" in Settings and run the SQL script in your Supabase SQL Editor.';
     }
+    if (raw.contains('42501') || raw.contains('permission denied')) {
+      return 'Database permission denied (42501). Please click "SQL Setup" in Settings and run the updated SQL script in your Supabase SQL Editor to grant table privileges.';
+    }
     if (raw.contains('401') || raw.contains('Invalid API key') || raw.contains('JWT') || raw.contains('PGRST301')) {
       return 'Authentication failed. Please verify your Supabase Project URL and Publishable Key.';
     }

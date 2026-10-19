@@ -93,7 +93,8 @@ CREATE TABLE IF NOT EXISTS public.habits (
     category TEXT DEFAULT 'other',
     frequency_per_week INT DEFAULT 1,
     preferred_time_of_day TEXT DEFAULT 'anytime',
-    target_duration_minutes INT DEFAULT 30,
+    min_session_minutes INT DEFAULT 30,
+    max_session_minutes INT DEFAULT 60,
     days_filter TEXT DEFAULT 'all',
     is_active BOOLEAN DEFAULT TRUE,
     is_deleted BOOLEAN DEFAULT FALSE,
@@ -151,6 +152,19 @@ CREATE POLICY "Allow all on habit_logs" ON public.habit_logs FOR ALL USING (true
 
 DROP POLICY IF EXISTS "Allow all on holidays" ON public.holidays;
 CREATE POLICY "Allow all on holidays" ON public.holidays FOR ALL USING (true) WITH CHECK (true);
+
+-- Grant API access to anon and authenticated roles
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO anon, authenticated, service_role;
+
+-- Refresh PostgREST schema cache
+NOTIFY pgrst, 'reload schema';
 ''';
 
 class SettingsScreen extends ConsumerStatefulWidget {
