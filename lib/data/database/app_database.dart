@@ -51,32 +51,60 @@ class AppDatabase extends _$AppDatabase {
         onCreate: (m) => m.createAll(),
         onUpgrade: (m, from, to) async {
           if (from < 2) {
-            await m.createTable(holidays);
-            await m.createTable(subtasks);
+            await _safeCreateTable(m, holidays);
+            await _safeCreateTable(m, subtasks);
           }
           if (from < 3) {
-            await m.addColumn(holidays, holidays.groupName);
-            await m.addColumn(habits, habits.daysFilter);
+            await _safeAddColumn(m, holidays, holidays.groupName);
+            await _safeAddColumn(m, habits, habits.daysFilter);
           }
           if (from < 4) {
-            await m.addColumn(events, events.syncId);
-            await m.addColumn(tasks, tasks.syncId);
-            await m.addColumn(habits, habits.syncId);
-            await m.addColumn(habitLogs, habitLogs.syncId);
-            await m.addColumn(habitLogs, habitLogs.updatedAt);
-            await m.addColumn(holidays, holidays.syncId);
-            await m.addColumn(holidays, holidays.isDeleted);
-            await m.addColumn(holidays, holidays.updatedAt);
-            await m.addColumn(categories, categories.syncId);
-            await m.addColumn(categories, categories.isDeleted);
-            await m.addColumn(categories, categories.updatedAt);
-            await m.addColumn(subtasks, subtasks.syncId);
-            await m.addColumn(subtasks, subtasks.isDeleted);
-            await m.addColumn(subtasks, subtasks.updatedAt);
+            await _safeAddColumn(m, events, events.syncId);
+            await _safeAddColumn(m, tasks, tasks.syncId);
+            await _safeAddColumn(m, habits, habits.syncId);
+            await _safeAddColumn(m, habitLogs, habitLogs.syncId);
+            await _safeAddColumn(m, habitLogs, habitLogs.updatedAt);
+            await _safeAddColumn(m, holidays, holidays.syncId);
+            await _safeAddColumn(m, holidays, holidays.isDeleted);
+            await _safeAddColumn(m, holidays, holidays.updatedAt);
+            await _safeAddColumn(m, categories, categories.syncId);
+            await _safeAddColumn(m, categories, categories.isDeleted);
+            await _safeAddColumn(m, categories, categories.updatedAt);
+            await _safeAddColumn(m, subtasks, subtasks.syncId);
+            await _safeAddColumn(m, subtasks, subtasks.isDeleted);
+            await _safeAddColumn(m, subtasks, subtasks.updatedAt);
           }
         },
         beforeOpen: (details) async {
           await customStatement('PRAGMA foreign_keys = ON');
         },
       );
+
+  Future<void> _safeCreateTable(Migrator m, TableInfo table) async {
+    try {
+      await m.createTable(table);
+    } catch (e) {
+      if (!e.toString().contains('already exists')) {
+        rethrow;
+      }
+    }
+  }
+
+  Future<void> _safeAddColumn(
+    Migrator m,
+    TableInfo table,
+    GeneratedColumn column,
+  ) async {
+    try {
+      final rows = await customSelect('PRAGMA table_info("${table.actualTableName}")').get();
+      final columnNames = rows.map((r) => r.read<String>('name')).toSet();
+      if (!columnNames.contains(column.name)) {
+        await m.addColumn(table, column);
+      }
+    } catch (e) {
+      if (!e.toString().contains('duplicate column name')) {
+        rethrow;
+      }
+    }
+  }
 }
