@@ -15,7 +15,42 @@ class LogHabitDialog extends ConsumerStatefulWidget {
 
   const LogHabitDialog({super.key, required this.habit});
 
-  static Future<void> show(BuildContext context, Habit habit) {
+  static Future<void> show(BuildContext context, Habit habit) async {
+    // For daily habits, check if already completed today before showing dialog
+    if (habit.targetFrequencyPerWeek >= 7) {
+      final container = ProviderScope.containerOf(context, listen: false);
+      final habitDao = container.read(habitDaoProvider);
+      final localNow = DateTime.now();
+      final todayStart = DateTime(localNow.year, localNow.month, localNow.day);
+      final todayEnd = todayStart.add(const Duration(days: 1));
+      final logsToday = await habitDao.getLogsForHabit(habit.id, from: todayStart, to: todayEnd);
+
+      if (logsToday.any((l) => !l.isDeleted)) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle_outline, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'You\'ve already completed "${habit.title}" today! Daily habits can only be logged once per day.',
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.amber.shade900,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        return;
+      }
+    }
+
+    if (!context.mounted) return;
     return showDialog(
       context: context,
       builder: (_) => LogHabitDialog(habit: habit),
@@ -44,6 +79,40 @@ class _LogHabitDialogState extends ConsumerState<LogHabitDialog> {
 
   Future<void> _logSession() async {
     final habitDao = ref.read(habitDaoProvider);
+    final localNow = DateTime.now();
+    final todayStart = DateTime(localNow.year, localNow.month, localNow.day);
+    final todayEnd = todayStart.add(const Duration(days: 1));
+
+    // For daily habits, guard against multiple entries on the same day
+    if (widget.habit.targetFrequencyPerWeek >= 7) {
+      final logsToday = await habitDao.getLogsForHabit(widget.habit.id, from: todayStart, to: todayEnd);
+      if (logsToday.any((l) => !l.isDeleted)) {
+        if (mounted) {
+          Navigator.of(context).pop();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.check_circle_outline, color: Colors.white, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'You\'ve already completed "${widget.habit.title}" today! Daily habits can only be logged once per day.',
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: Colors.amber.shade900,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
+    }
+
     final now = DateTime.now().toUtc();
     await habitDao.logHabitCompletion(
       HabitLogsCompanion.insert(
@@ -54,6 +123,7 @@ class _LogHabitDialogState extends ConsumerState<LogHabitDialog> {
         notes: _notesController.text.isNotEmpty
             ? Value(_notesController.text.trim())
             : const Value(null),
+        isDeleted: const Value(false),
         updatedAt: Value(now),
       ),
     );

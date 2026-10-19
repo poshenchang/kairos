@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS public.habit_logs (
     completed_at TIMESTAMPTZ DEFAULT NOW(),
     duration_minutes INT DEFAULT 30,
     notes TEXT,
+    is_deleted BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -122,6 +123,8 @@ CREATE TABLE IF NOT EXISTS public.holidays (
     is_deleted BOOLEAN DEFAULT FALSE,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.habit_logs ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;
 
 -- Enable Row Level Security and allow read/write with Publishable Key
 ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;

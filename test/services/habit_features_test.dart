@@ -355,6 +355,116 @@ void main() {
       final futureWeekCompletions = await container.read(habitCompletionsForWeekProvider(futureSunday).future);
       expect(futureWeekCompletions[habitId] ?? 0, equals(0));
     });
+
+    test('daily habit with multiple entries on the same day only counts as 1 completion', () async {
+      final habitId = await db.habitDao.insertHabit(
+        HabitsCompanion.insert(
+          title: 'Daily Meditation',
+          targetFrequencyPerWeek: const drift.Value(7),
+        ),
+      );
+
+      final weekStart = DateTime(2026, 10, 18);
+      final weekEnd = DateTime(2026, 10, 25);
+
+      // Log 3 times on Monday (Oct 19)
+      for (int i = 0; i < 3; i++) {
+        await db.habitDao.logHabitCompletion(
+          HabitLogsCompanion.insert(
+            habitId: habitId,
+            completedAt: DateTime(2026, 10, 19, 8 + i * 2, 0),
+            durationMinutes: const drift.Value(20),
+          ),
+        );
+      }
+
+      // Log 1 time on Tuesday (Oct 20)
+      await db.habitDao.logHabitCompletion(
+        HabitLogsCompanion.insert(
+          habitId: habitId,
+          completedAt: DateTime(2026, 10, 20, 9, 0),
+          durationMinutes: const drift.Value(20),
+        ),
+      );
+
+      final completions = await db.habitDao.getWeeklyCompletions(weekStart, weekEnd);
+      // Even with 4 total logs, Monday counts as 1 and Tuesday counts as 1 = 2
+      expect(completions[habitId], equals(2));
+    });
+
+    test('deduplicateDailyHabitLogs marks duplicate entries on the same day as isDeleted = true', () async {
+      final habitId = await db.habitDao.insertHabit(
+        HabitsCompanion.insert(
+          title: 'Daily Piano',
+          targetFrequencyPerWeek: const drift.Value(7),
+        ),
+      );
+
+      // Insert 3 logs on Oct 19
+      final id1 = await db.habitDao.logHabitCompletion(
+        HabitLogsCompanion.insert(
+          habitId: habitId,
+          completedAt: DateTime(2026, 10, 19, 9, 0),
+        ),
+      );
+      final id2 = await db.habitDao.logHabitCompletion(
+        HabitLogsCompanion.insert(
+          habitId: habitId,
+          completedAt: DateTime(2026, 10, 19, 14, 0),
+        ),
+      );
+      final id3 = await db.habitDao.logHabitCompletion(
+        HabitLogsCompanion.insert(
+          habitId: habitId,
+          completedAt: DateTime(2026, 10, 19, 18, 0),
+        ),
+      );
+
+      // Insert 1 log on Oct 20
+      final id4 = await db.habitDao.logHabitCompletion(
+        HabitLogsCompanion.insert(
+          habitId: habitId,
+          completedAt: DateTime(2026, 10, 20, 10, 0),
+        ),
+      );
+
+      final deduplicatedCount = await db.habitDao.deduplicateDailyHabitLogs();
+      expect(deduplicatedCount, equals(2)); // id2 and id3 marked deleted
+
+      final activeLogs = await db.habitDao.getLogsForHabit(habitId);
+      expect(activeLogs.length, equals(2)); // id1 and id4 remain active
+      expect(activeLogs.map((l) => l.id), containsAll([id1, id4]));
+
+      // Verify soft deletion
+      final allLogs = await (db.select(db.habitLogs)..where((l) => l.habitId.equals(habitId))).get();
+      final deletedLogs = allLogs.where((l) => l.isDeleted).toList();
+      expect(deletedLogs.length, equals(2));
+      expect(deletedLogs.map((l) => l.id), containsAll([id2, id3]));
+    });
+
+    test('deleteHabitLog sets isDeleted = true and excludes from active queries', () async {
+      final habitId = await db.habitDao.insertHabit(
+        HabitsCompanion.insert(
+          title: 'Workout',
+          targetFrequencyPerWeek: const drift.Value(3),
+        ),
+      );
+
+      final logId = await db.habitDao.logHabitCompletion(
+        HabitLogsCompanion.insert(
+          habitId: habitId,
+          completedAt: DateTime.now(),
+        ),
+      );
+
+      var logs = await db.habitDao.getLogsForHabit(habitId);
+      expect(logs.length, equals(1));
+
+      await db.habitDao.deleteHabitLog(logId);
+
+      logs = await db.habitDao.getLogsForHabit(habitId);
+      expect(logs, isEmpty);
+    });
   });
 }
 

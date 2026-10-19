@@ -2817,6 +2817,16 @@ class $HabitLogsTable extends HabitLogs
   late final GeneratedColumn<String> notes = GeneratedColumn<String>(
       'notes', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _isDeletedMeta =
+      const VerificationMeta('isDeleted');
+  @override
+  late final GeneratedColumn<bool> isDeleted = GeneratedColumn<bool>(
+      'is_deleted', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('CHECK ("is_deleted" IN (0, 1))'),
+      defaultValue: const Constant(false));
   static const VerificationMeta _createdAtMeta =
       const VerificationMeta('createdAt');
   @override
@@ -2841,6 +2851,7 @@ class $HabitLogsTable extends HabitLogs
         completedAt,
         durationMinutes,
         notes,
+        isDeleted,
         createdAt,
         updatedAt
       ];
@@ -2885,6 +2896,10 @@ class $HabitLogsTable extends HabitLogs
       context.handle(
           _notesMeta, notes.isAcceptableOrUnknown(data['notes']!, _notesMeta));
     }
+    if (data.containsKey('is_deleted')) {
+      context.handle(_isDeletedMeta,
+          isDeleted.isAcceptableOrUnknown(data['is_deleted']!, _isDeletedMeta));
+    }
     if (data.containsKey('created_at')) {
       context.handle(_createdAtMeta,
           createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
@@ -2914,6 +2929,8 @@ class $HabitLogsTable extends HabitLogs
           .read(DriftSqlType.int, data['${effectivePrefix}duration_minutes']),
       notes: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}notes']),
+      isDeleted: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}is_deleted'])!,
       createdAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
       updatedAt: attachedDatabase.typeMapping
@@ -2942,6 +2959,7 @@ class HabitLog extends DataClass implements Insertable<HabitLog> {
 
   /// Optional notes about the session.
   final String? notes;
+  final bool isDeleted;
   final DateTime createdAt;
   final DateTime updatedAt;
   const HabitLog(
@@ -2951,6 +2969,7 @@ class HabitLog extends DataClass implements Insertable<HabitLog> {
       required this.completedAt,
       this.durationMinutes,
       this.notes,
+      required this.isDeleted,
       required this.createdAt,
       required this.updatedAt});
   @override
@@ -2968,6 +2987,7 @@ class HabitLog extends DataClass implements Insertable<HabitLog> {
     if (!nullToAbsent || notes != null) {
       map['notes'] = Variable<String>(notes);
     }
+    map['is_deleted'] = Variable<bool>(isDeleted);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     return map;
@@ -2985,6 +3005,7 @@ class HabitLog extends DataClass implements Insertable<HabitLog> {
           : Value(durationMinutes),
       notes:
           notes == null && nullToAbsent ? const Value.absent() : Value(notes),
+      isDeleted: Value(isDeleted),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
     );
@@ -3000,6 +3021,7 @@ class HabitLog extends DataClass implements Insertable<HabitLog> {
       completedAt: serializer.fromJson<DateTime>(json['completedAt']),
       durationMinutes: serializer.fromJson<int?>(json['durationMinutes']),
       notes: serializer.fromJson<String?>(json['notes']),
+      isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
@@ -3014,6 +3036,7 @@ class HabitLog extends DataClass implements Insertable<HabitLog> {
       'completedAt': serializer.toJson<DateTime>(completedAt),
       'durationMinutes': serializer.toJson<int?>(durationMinutes),
       'notes': serializer.toJson<String?>(notes),
+      'isDeleted': serializer.toJson<bool>(isDeleted),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
@@ -3026,6 +3049,7 @@ class HabitLog extends DataClass implements Insertable<HabitLog> {
           DateTime? completedAt,
           Value<int?> durationMinutes = const Value.absent(),
           Value<String?> notes = const Value.absent(),
+          bool? isDeleted,
           DateTime? createdAt,
           DateTime? updatedAt}) =>
       HabitLog(
@@ -3037,6 +3061,7 @@ class HabitLog extends DataClass implements Insertable<HabitLog> {
             ? durationMinutes.value
             : this.durationMinutes,
         notes: notes.present ? notes.value : this.notes,
+        isDeleted: isDeleted ?? this.isDeleted,
         createdAt: createdAt ?? this.createdAt,
         updatedAt: updatedAt ?? this.updatedAt,
       );
@@ -3051,6 +3076,7 @@ class HabitLog extends DataClass implements Insertable<HabitLog> {
           ? data.durationMinutes.value
           : this.durationMinutes,
       notes: data.notes.present ? data.notes.value : this.notes,
+      isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -3065,6 +3091,7 @@ class HabitLog extends DataClass implements Insertable<HabitLog> {
           ..write('completedAt: $completedAt, ')
           ..write('durationMinutes: $durationMinutes, ')
           ..write('notes: $notes, ')
+          ..write('isDeleted: $isDeleted, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -3073,7 +3100,7 @@ class HabitLog extends DataClass implements Insertable<HabitLog> {
 
   @override
   int get hashCode => Object.hash(id, syncId, habitId, completedAt,
-      durationMinutes, notes, createdAt, updatedAt);
+      durationMinutes, notes, isDeleted, createdAt, updatedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -3084,6 +3111,7 @@ class HabitLog extends DataClass implements Insertable<HabitLog> {
           other.completedAt == this.completedAt &&
           other.durationMinutes == this.durationMinutes &&
           other.notes == this.notes &&
+          other.isDeleted == this.isDeleted &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
 }
@@ -3095,6 +3123,7 @@ class HabitLogsCompanion extends UpdateCompanion<HabitLog> {
   final Value<DateTime> completedAt;
   final Value<int?> durationMinutes;
   final Value<String?> notes;
+  final Value<bool> isDeleted;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   const HabitLogsCompanion({
@@ -3104,6 +3133,7 @@ class HabitLogsCompanion extends UpdateCompanion<HabitLog> {
     this.completedAt = const Value.absent(),
     this.durationMinutes = const Value.absent(),
     this.notes = const Value.absent(),
+    this.isDeleted = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
   });
@@ -3114,6 +3144,7 @@ class HabitLogsCompanion extends UpdateCompanion<HabitLog> {
     required DateTime completedAt,
     this.durationMinutes = const Value.absent(),
     this.notes = const Value.absent(),
+    this.isDeleted = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
   })  : habitId = Value(habitId),
@@ -3125,6 +3156,7 @@ class HabitLogsCompanion extends UpdateCompanion<HabitLog> {
     Expression<DateTime>? completedAt,
     Expression<int>? durationMinutes,
     Expression<String>? notes,
+    Expression<bool>? isDeleted,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
   }) {
@@ -3135,6 +3167,7 @@ class HabitLogsCompanion extends UpdateCompanion<HabitLog> {
       if (completedAt != null) 'completed_at': completedAt,
       if (durationMinutes != null) 'duration_minutes': durationMinutes,
       if (notes != null) 'notes': notes,
+      if (isDeleted != null) 'is_deleted': isDeleted,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
     });
@@ -3147,6 +3180,7 @@ class HabitLogsCompanion extends UpdateCompanion<HabitLog> {
       Value<DateTime>? completedAt,
       Value<int?>? durationMinutes,
       Value<String?>? notes,
+      Value<bool>? isDeleted,
       Value<DateTime>? createdAt,
       Value<DateTime>? updatedAt}) {
     return HabitLogsCompanion(
@@ -3156,6 +3190,7 @@ class HabitLogsCompanion extends UpdateCompanion<HabitLog> {
       completedAt: completedAt ?? this.completedAt,
       durationMinutes: durationMinutes ?? this.durationMinutes,
       notes: notes ?? this.notes,
+      isDeleted: isDeleted ?? this.isDeleted,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -3182,6 +3217,9 @@ class HabitLogsCompanion extends UpdateCompanion<HabitLog> {
     if (notes.present) {
       map['notes'] = Variable<String>(notes.value);
     }
+    if (isDeleted.present) {
+      map['is_deleted'] = Variable<bool>(isDeleted.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -3200,6 +3238,7 @@ class HabitLogsCompanion extends UpdateCompanion<HabitLog> {
           ..write('completedAt: $completedAt, ')
           ..write('durationMinutes: $durationMinutes, ')
           ..write('notes: $notes, ')
+          ..write('isDeleted: $isDeleted, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -5498,6 +5537,7 @@ typedef $$HabitLogsTableCreateCompanionBuilder = HabitLogsCompanion Function({
   required DateTime completedAt,
   Value<int?> durationMinutes,
   Value<String?> notes,
+  Value<bool> isDeleted,
   Value<DateTime> createdAt,
   Value<DateTime> updatedAt,
 });
@@ -5508,6 +5548,7 @@ typedef $$HabitLogsTableUpdateCompanionBuilder = HabitLogsCompanion Function({
   Value<DateTime> completedAt,
   Value<int?> durationMinutes,
   Value<String?> notes,
+  Value<bool> isDeleted,
   Value<DateTime> createdAt,
   Value<DateTime> updatedAt,
 });
@@ -5555,6 +5596,9 @@ class $$HabitLogsTableFilterComposer
 
   ColumnFilters<String> get notes => $composableBuilder(
       column: $table.notes, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get isDeleted => $composableBuilder(
+      column: $table.isDeleted, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnFilters(column));
@@ -5608,6 +5652,9 @@ class $$HabitLogsTableOrderingComposer
   ColumnOrderings<String> get notes => $composableBuilder(
       column: $table.notes, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<bool> get isDeleted => $composableBuilder(
+      column: $table.isDeleted, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnOrderings(column));
 
@@ -5658,6 +5705,9 @@ class $$HabitLogsTableAnnotationComposer
 
   GeneratedColumn<String> get notes =>
       $composableBuilder(column: $table.notes, builder: (column) => column);
+
+  GeneratedColumn<bool> get isDeleted =>
+      $composableBuilder(column: $table.isDeleted, builder: (column) => column);
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -5715,6 +5765,7 @@ class $$HabitLogsTableTableManager extends RootTableManager<
             Value<DateTime> completedAt = const Value.absent(),
             Value<int?> durationMinutes = const Value.absent(),
             Value<String?> notes = const Value.absent(),
+            Value<bool> isDeleted = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
             Value<DateTime> updatedAt = const Value.absent(),
           }) =>
@@ -5725,6 +5776,7 @@ class $$HabitLogsTableTableManager extends RootTableManager<
             completedAt: completedAt,
             durationMinutes: durationMinutes,
             notes: notes,
+            isDeleted: isDeleted,
             createdAt: createdAt,
             updatedAt: updatedAt,
           ),
@@ -5735,6 +5787,7 @@ class $$HabitLogsTableTableManager extends RootTableManager<
             required DateTime completedAt,
             Value<int?> durationMinutes = const Value.absent(),
             Value<String?> notes = const Value.absent(),
+            Value<bool> isDeleted = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
             Value<DateTime> updatedAt = const Value.absent(),
           }) =>
@@ -5745,6 +5798,7 @@ class $$HabitLogsTableTableManager extends RootTableManager<
             completedAt: completedAt,
             durationMinutes: durationMinutes,
             notes: notes,
+            isDeleted: isDeleted,
             createdAt: createdAt,
             updatedAt: updatedAt,
           ),

@@ -160,6 +160,7 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
 
     // 1. Ensure all local records have a unique syncId before pushing
     await _ensureLocalSyncIds();
+    await _db.habitDao.deduplicateDailyHabitLogs();
 
     // 2. Categories
     count += await _syncCategories();
@@ -780,6 +781,7 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
         final remoteUpdatedAt = remote['updated_at'] != null
             ? DateTime.parse(remote['updated_at'] as String)
             : DateTime.parse(remote['created_at'] as String);
+        final remoteIsDeleted = remote['is_deleted'] as bool? ?? false;
 
         if (local == null) {
           await _db.into(_db.habitLogs).insert(
@@ -789,6 +791,7 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
                   completedAt: DateTime.parse(remote['completed_at'] as String),
                   durationMinutes: Value(remote['duration_minutes'] as int?),
                   notes: Value(remote['notes'] as String?),
+                  isDeleted: Value(remoteIsDeleted),
                   createdAt: Value(DateTime.parse(remote['created_at'] as String)),
                   updatedAt: Value(remoteUpdatedAt),
                 ),
@@ -799,6 +802,7 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
               completedAt: Value(DateTime.parse(remote['completed_at'] as String)),
               durationMinutes: Value(remote['duration_minutes'] as int?),
               notes: Value(remote['notes'] as String?),
+              isDeleted: Value(remoteIsDeleted),
               updatedAt: Value(remoteUpdatedAt),
             ),
           );
@@ -817,6 +821,7 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
             'completed_at': local.completedAt.toIso8601String(),
             'duration_minutes': local.durationMinutes,
             'notes': local.notes,
+            'is_deleted': local.isDeleted,
             'created_at': local.createdAt.toIso8601String(),
             'updated_at': local.updatedAt.toIso8601String(),
           });

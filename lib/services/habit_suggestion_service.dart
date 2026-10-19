@@ -50,8 +50,18 @@ class HabitSuggestionService {
 
       // Check if already auto-logged for this specific event
       final existingLogs = await db.habitDao.getLogsForHabit(habitId);
-      final alreadyLogged = existingLogs.any((l) => l.notes == 'auto_event:${event.id}');
+      final alreadyLogged = existingLogs.any((l) => !l.isDeleted && l.notes == 'auto_event:${event.id}');
       if (alreadyLogged) continue;
+
+      // For daily habits, check if already completed on this day
+      final habit = await db.habitDao.getHabitById(habitId);
+      if (habit != null && habit.targetFrequencyPerWeek >= 7) {
+        final eventLocalDay = event.endTime.toLocal();
+        final dayStart = DateTime(eventLocalDay.year, eventLocalDay.month, eventLocalDay.day);
+        final dayEnd = dayStart.add(const Duration(days: 1));
+        final logsOnDay = await db.habitDao.getLogsForHabit(habitId, from: dayStart, to: dayEnd);
+        if (logsOnDay.any((l) => !l.isDeleted)) continue;
+      }
 
       final duration = event.endTime.difference(event.startTime).inMinutes;
       final completedTime = event.endTime.toUtc();
@@ -62,6 +72,7 @@ class HabitSuggestionService {
           completedAt: completedTime,
           durationMinutes: drift.Value(duration > 0 ? duration : 30),
           notes: drift.Value('auto_event:${event.id}'),
+          isDeleted: const drift.Value(false),
           updatedAt: drift.Value(completedTime),
         ),
       );

@@ -44,7 +44,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(QueryExecutor e) : super(e);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -73,6 +73,9 @@ class AppDatabase extends _$AppDatabase {
             await _safeAddColumn(m, subtasks, subtasks.syncId);
             await _safeAddColumn(m, subtasks, subtasks.isDeleted);
             await _safeAddTimestampColumn('subtasks', 'updated_at');
+          }
+          if (from < 5) {
+            await _safeAddColumn(m, habitLogs, habitLogs.isDeleted);
           }
         },
         beforeOpen: (details) async {

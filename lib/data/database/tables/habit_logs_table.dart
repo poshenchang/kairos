@@ -25,6 +25,8 @@ class HabitLogs extends Table {
   /// Optional notes about the session.
   TextColumn get notes => text().nullable()();
 
+  BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
+
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 
   DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
