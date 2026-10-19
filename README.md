@@ -100,6 +100,12 @@ If you have a Mac:
 
 Kairos supports compiling as a Progressive Web App (PWA) using WebAssembly and IndexedDB for local SQLite persistence. You can deploy it to any static web host (such as GitHub Pages, Vercel, Netlify, or Firebase Hosting) and use the browser's native **"Add to Home Screen"** feature on iOS and Android without needing to sideload or go through the App Store.
 
+### Live Web App (GitHub Pages)
+
+Kairos is automatically deployed to GitHub Pages via GitHub Actions:
+- **Live App URL**: [https://poshenchang.github.io/kairos/](https://poshenchang.github.io/kairos/)
+- **Privacy & Storage**: 100% client-side. All events, tasks, and habits are stored in your device browser's private IndexedDB storage via WebAssembly SQLite. No user data is sent to GitHub or shared between users.
+
 ### 1. Build the Web App
 ```bash
 flutter build web --release
