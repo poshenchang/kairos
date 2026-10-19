@@ -8,6 +8,8 @@ import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/event_repository.dart';
 import 'package:kairos/data/repositories/task_repository.dart';
 
+export 'package:kairos/core/scheduler/scheduler_provider.dart' show appDatabaseProvider;
+
 final categoryDaoProvider = Provider<CategoryDao>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return db.categoryDao;

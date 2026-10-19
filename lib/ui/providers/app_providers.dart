@@ -4,6 +4,7 @@
 // and smart dashboard suggestions.
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 
@@ -16,9 +17,12 @@ final allCategoriesProvider = StreamProvider<List<Category>>((ref) {
 
 // ── Events ──────────────────────────────────────────────────────────────────
 
-final todayEventsProvider = StreamProvider<List<Event>>((ref) {
-  final dao = ref.watch(eventDaoProvider);
-  return dao.watchEventsForDay(DateTime.now());
+final todayEventsProvider = FutureProvider<List<Event>>((ref) async {
+  final repo = ref.watch(eventRepositoryProvider);
+  final now = DateTime.now();
+  final start = DateTime(now.year, now.month, now.day);
+  final end = start.add(const Duration(days: 1));
+  return repo.getExpandedEventsInRange(start, end);
 });
 
 final selectedDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
@@ -38,6 +42,11 @@ final weekEventsProvider = FutureProvider.family<List<Event>, DateTime>((ref, we
   return repo.getExpandedEventsInRange(start, end);
 });
 
+final allEventsStreamProvider = StreamProvider<List<Event>>((ref) {
+  final dao = ref.watch(eventDaoProvider);
+  return dao.watchAllEvents();
+});
+
 // ── Tasks ───────────────────────────────────────────────────────────────────
 
 final incompleteTasksStreamProvider = StreamProvider<List<Task>>((ref) {
@@ -53,6 +62,11 @@ final dashboardTasksProvider = FutureProvider<List<Task>>((ref) async {
   return repo.getDashboardTasks();
 });
 
+final subtasksForTaskProvider = StreamProvider.family<List<Subtask>, int>((ref, taskId) {
+  final dao = ref.watch(taskDaoProvider);
+  return dao.watchSubtasksForTask(taskId);
+});
+
 // ── Habits ──────────────────────────────────────────────────────────────────
 
 final activeHabitsProvider = StreamProvider<List<Habit>>((ref) {
@@ -60,13 +74,18 @@ final activeHabitsProvider = StreamProvider<List<Habit>>((ref) {
   return dao.watchActiveHabits();
 });
 
-final weeklyHabitCompletionsProvider = FutureProvider<Map<int, int>>((ref) async {
+final habitCompletionsForWeekProvider = FutureProvider.family<Map<int, int>, DateTime>((ref, weekSunday) async {
   final dao = ref.watch(habitDaoProvider);
+  final start = DateTime.utc(weekSunday.year, weekSunday.month, weekSunday.day);
+  final end = start.add(const Duration(days: 7));
+  return dao.getWeeklyCompletions(start, end);
+});
+
+final weeklyHabitCompletionsProvider = FutureProvider<Map<int, int>>((ref) async {
   final now = DateTime.now();
-  final monday = now.subtract(Duration(days: now.weekday - 1));
-  final weekStart = DateTime.utc(monday.year, monday.month, monday.day);
-  final weekEnd = weekStart.add(const Duration(days: 7));
-  return dao.getWeeklyCompletions(weekStart, weekEnd);
+  final daysBack = now.weekday % 7; // Sunday start (Sunday = weekday 7 % 7 = 0)
+  final sunday = DateTime(now.year, now.month, now.day).subtract(Duration(days: daysBack));
+  return ref.watch(habitCompletionsForWeekProvider(sunday).future);
 });
 
 // ── Smart Free Time & Suggestion ─────────────────────────────────────────────
@@ -101,14 +120,59 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
   final habits = habitsAsync.value ?? [];
   final habitCounts = habitCountsAsync.value ?? {};
 
-  // Find the next upcoming event today
+  // 1. Check if user is CURRENTLY in an event right now according to the timetable
+  final currentEvents = todayEvents.where((e) {
+    if (e.isDeleted || e.eventType == 'reminder') return false;
+    final start = e.startTime.toLocal();
+    final end = e.endTime.toLocal();
+    return !now.isBefore(start) && now.isBefore(end);
+  }).toList()
+    ..sort((a, b) => b.endTime.compareTo(a.endTime));
+
+  if (currentEvents.isNotEmpty) {
+    final currentEvent = currentEvents.first;
+    final remainingMinutes = currentEvent.endTime.toLocal().difference(now).inMinutes;
+    final endFormatted = DateFormat('h:mm a').format(currentEvent.endTime.toLocal());
+
+    // Check what to do after current event ends
+    final afterEvents = todayEvents.where((e) {
+      if (e.isDeleted || e.eventType == 'reminder') return false;
+      return !e.startTime.toLocal().isBefore(currentEvent.endTime.toLocal());
+    }).toList()
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+
+    final nextAfter = afterEvents.isNotEmpty ? afterEvents.first : null;
+    String whatNextText;
+    if (nextAfter != null) {
+      final gap = nextAfter.startTime.toLocal().difference(currentEvent.endTime.toLocal()).inMinutes;
+      final startFmt = DateFormat('h:mm a').format(nextAfter.startTime.toLocal());
+      if (gap <= 5) {
+        whatNextText = 'Followed immediately by "${nextAfter.title}" at $startFmt.';
+      } else {
+        whatNextText = 'Next: "${nextAfter.title}" at $startFmt (${gap}m break).';
+      }
+    } else {
+      whatNextText = 'Open time after this event ends.';
+    }
+
+    return SmartSuggestion(
+      freeDuration: Duration.zero,
+      title: 'In Event: ${currentEvent.title}',
+      description: 'Ends at $endFormatted (${remainingMinutes}m remaining). $whatNextText',
+      actionLabel: 'View Schedule',
+      category: currentEvent.category,
+      hasFreeTime: false,
+    );
+  }
+
+  // 2. User is NOT currently in an event. Look for the next upcoming event today.
   final upcomingEvents = todayEvents
-      .where((e) => e.startTime.isAfter(now))
+      .where((e) => !e.isDeleted && e.eventType != 'reminder' && e.startTime.toLocal().isAfter(now))
       .toList()
     ..sort((a, b) => a.startTime.compareTo(b.startTime));
 
   final nextEvent = upcomingEvents.isNotEmpty ? upcomingEvents.first : null;
-  final freeUntil = nextEvent?.startTime ?? DateTime(now.year, now.month, now.day, 22, 0);
+  final freeUntil = nextEvent?.startTime.toLocal() ?? DateTime(now.year, now.month, now.day, 22, 0);
   final freeMinutes = freeUntil.difference(now).inMinutes;
 
   if (freeMinutes < 15) {
@@ -116,7 +180,7 @@ final smartSuggestionProvider = Provider<SmartSuggestion>((ref) {
       return SmartSuggestion(
         freeDuration: Duration(minutes: freeMinutes.clamp(0, 15)),
         title: 'Upcoming: ${nextEvent.title}',
-        description: 'Starts in $freeMinutes minutes. Prepare your materials.',
+        description: 'Starts in $freeMinutes minutes (${DateFormat('h:mm a').format(nextEvent.startTime.toLocal())}). Prepare your materials.',
         actionLabel: 'View Event',
         category: nextEvent.category,
         hasFreeTime: false,

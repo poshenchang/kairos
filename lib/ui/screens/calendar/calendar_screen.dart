@@ -14,7 +14,10 @@ import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/settings_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/screens/calendar/widgets/timetable_view.dart';
+import 'package:kairos/ui/screens/calendar/widgets/all_events_view.dart';
+import 'package:kairos/ui/screens/calendar/widgets/schedule_sidebar.dart';
 import 'package:kairos/ui/widgets/add_event_dialog.dart';
+import 'package:kairos/ui/widgets/edit_event_dialog.dart';
 import 'package:kairos/ui/widgets/app_global_actions.dart';
 import 'package:kairos/ui/widgets/category_badge.dart';
 
@@ -28,11 +31,14 @@ class CalendarScreen extends ConsumerStatefulWidget {
 class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   late DateTime _currentWeekStart;
   String? _selectedCategoryFilter;
+  bool _showSidebar = true;
+  DateTime _displayedTimetableMonth = DateTime.now();
 
   @override
   void initState() {
     super.initState();
     _currentWeekStart = _getSundayStart(DateTime.now());
+    _displayedTimetableMonth = DateTime.now();
   }
 
   DateTime _getSundayStart(DateTime date) {
@@ -49,116 +55,189 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     final categoriesAsync = ref.watch(allCategoriesProvider);
     final categories = categoriesAsync.value ?? [];
     final settings = ref.watch(settingsNotifierProvider);
-    final isTimetable = settings.calendarViewMode == 'timetable';
+    final viewMode = settings.calendarViewMode;
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          DateFormat('MMMM yyyy').format(selectedDate),
+          viewMode == 'all'
+              ? 'All Events Directory'
+              : (viewMode == 'timetable'
+                  ? DateFormat('MMMM yyyy').format(_displayedTimetableMonth)
+                  : DateFormat('MMMM yyyy').format(selectedDate)),
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
+          // Sidebar Toggle button for Timetable mode
+          if (viewMode == 'timetable')
+            IconButton(
+              icon: Icon(_showSidebar ? Icons.view_sidebar : Icons.view_sidebar_outlined),
+              tooltip: _showSidebar ? 'Hide Scheduler Sidebar' : 'Show Scheduler Sidebar',
+              onPressed: () => setState(() => _showSidebar = !_showSidebar),
+            ),
           // Jump to Date button
-          IconButton(
-            icon: const Icon(Icons.calendar_month),
-            tooltip: 'Jump to Date',
-            onPressed: () async {
-              final picked = await showDatePicker(
-                context: context,
-                initialDate: selectedDate,
-                firstDate: DateTime(2020),
-                lastDate: DateTime(2035),
-              );
-              if (picked != null) {
-                setState(() {
-                  _currentWeekStart = _getSundayStart(picked);
-                });
-                ref.read(selectedDateProvider.notifier).state = picked;
-              }
-            },
-          ),
-          // Toggle between Timetable and List view
-          IconButton(
-            icon: Icon(isTimetable ? Icons.view_agenda_outlined : Icons.calendar_view_week),
-            tooltip: isTimetable ? 'Switch to List View' : 'Switch to Timetable View',
-            onPressed: () {
-              ref
-                  .read(settingsNotifierProvider.notifier)
-                  .setCalendarViewMode(isTimetable ? 'list' : 'timetable');
-            },
-          ),
+          if (viewMode != 'all')
+            IconButton(
+              icon: const Icon(Icons.calendar_month),
+              tooltip: 'Jump to Date',
+              onPressed: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: selectedDate,
+                  firstDate: DateTime(2020),
+                  lastDate: DateTime(2035),
+                );
+                if (picked != null) {
+                  setState(() {
+                    _currentWeekStart = _getSundayStart(picked);
+                  });
+                  ref.read(selectedDateProvider.notifier).state = picked;
+                }
+              },
+            ),
           // Global actions (Scheduler, theme, add task, add event, guide, settings)
           const AppGlobalActions(showAddButtons: false),
         ],
       ),
-      body: isTimetable
-          ? TimetableView(
-              anchorDate: selectedDate,
-              onDateSelected: (day) {
-                setState(() {
-                  _currentWeekStart = _getSundayStart(day);
-                });
-                ref.read(selectedDateProvider.notifier).state = day;
-              },
-            )
-          : Column(
-              children: [
-                // 1. Week Navigation & Day Selector Strip (Starts on Sunday)
-                _buildWeekStrip(selectedDate),
-
-                // 2. Category Filter Chips
-                _buildCategoryFilters(categories),
-
-                const Divider(height: 1),
-
-                // 3. Day Events List
-                Expanded(
-                  child: eventsAsync.when(
-                    loading: () => const Center(child: CircularProgressIndicator()),
-                    error: (err, _) => Center(child: Text('Error: $err')),
-                    data: (events) {
-                      final filtered = _selectedCategoryFilter == null
-                          ? events
-                          : events
-                              .where((e) =>
-                                  e.category.toLowerCase() ==
-                                  _selectedCategoryFilter!.toLowerCase())
-                              .toList();
-
-                      if (filtered.isEmpty) {
-                        return Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.event_available, size: 48, color: Colors.grey),
-                              const SizedBox(height: 12),
-                              Text(
-                                'No events on ${DateFormat('EEE, MMM d').format(selectedDate)}',
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                              ),
-                              const SizedBox(height: 6),
-                              const Text(
-                                'Tap + below to add classes, gym sessions, or meetings.',
-                                style: TextStyle(color: Colors.grey, fontSize: 13),
-                              ),
-                            ],
-                          ),
-                        );
-                      }
-
-                      return ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        itemCount: filtered.length,
-                        itemBuilder: (context, index) {
-                          final event = filtered[index];
-                          return _buildEventCard(event);
-                        },
-                      );
-                    },
+      body: Column(
+        children: [
+          // View Switcher Bar
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(
+                    value: 'timetable',
+                    icon: Icon(Icons.calendar_view_week, size: 16),
+                    label: Text('Timetable'),
                   ),
-                ),
-              ],
+                  ButtonSegment(
+                    value: 'list',
+                    icon: Icon(Icons.view_agenda, size: 16),
+                    label: Text('Agenda'),
+                  ),
+                  ButtonSegment(
+                    value: 'all',
+                    icon: Icon(Icons.category, size: 16),
+                    label: Text('All Events'),
+                  ),
+                ],
+                selected: {viewMode == 'all' ? 'all' : (viewMode == 'list' ? 'list' : 'timetable')},
+                onSelectionChanged: (val) {
+                  ref
+                      .read(settingsNotifierProvider.notifier)
+                      .setCalendarViewMode(val.first);
+                },
+              ),
             ),
+          ),
+          const Divider(height: 1),
+          // Body View Content
+          Expanded(
+            child: viewMode == 'all'
+                ? const AllEventsView()
+                : (viewMode == 'timetable'
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(
+                            child: TimetableView(
+                              anchorDate: selectedDate,
+                              onDateSelected: (day) {
+                                setState(() {
+                                  _currentWeekStart = _getSundayStart(day);
+                                });
+                                ref.read(selectedDateProvider.notifier).state = day;
+                              },
+                              onVisibleMonthChanged: (m) {
+                                if (_displayedTimetableMonth.year != m.year ||
+                                    _displayedTimetableMonth.month != m.month) {
+                                  setState(() => _displayedTimetableMonth = m);
+                                }
+                              },
+                            ),
+                          ),
+                          if (_showSidebar) ...[
+                            const VerticalDivider(width: 1, thickness: 1),
+                            SizedBox(
+                              width: 310,
+                              child: ScheduleSidebar(
+                                currentWeekStart: _currentWeekStart,
+                                onClose: () => setState(() => _showSidebar = false),
+                              ),
+                            ),
+                          ],
+                        ],
+                      )
+                    : Column(
+                        children: [
+                          // 1. Week Navigation & Day Selector Strip (Starts on Sunday)
+                          _buildWeekStrip(selectedDate),
+
+                          // 2. Category Filter Chips
+                          _buildCategoryFilters(categories),
+
+                          const Divider(height: 1),
+
+                          // 3. Day Events List
+                          Expanded(
+                            child: eventsAsync.when(
+                              loading: () => const Center(child: CircularProgressIndicator()),
+                              error: (err, _) => Center(child: Text('Error: $err')),
+                              data: (events) {
+                                final filtered = (_selectedCategoryFilter == null
+                                    ? List<Event>.from(events)
+                                    : events
+                                        .where((e) =>
+                                            e.category.toLowerCase() ==
+                                            _selectedCategoryFilter!.toLowerCase())
+                                        .toList())
+                                  ..sort((a, b) {
+                                    // Hard events (!isAutoScheduled) first, soft (isAutoScheduled) later
+                                    if (!a.isAutoScheduled && b.isAutoScheduled) return -1;
+                                    if (a.isAutoScheduled && !b.isAutoScheduled) return 1;
+                                    return a.startTime.compareTo(b.startTime);
+                                  });
+
+                                if (filtered.isEmpty) {
+                                  return Center(
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        const Icon(Icons.event_available, size: 48, color: Colors.grey),
+                                        const SizedBox(height: 12),
+                                        Text(
+                                          'No events on ${DateFormat('EEE, MMM d').format(selectedDate)}',
+                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        const Text(
+                                          'Tap + below to add classes, gym sessions, or meetings.',
+                                          style: TextStyle(color: Colors.grey, fontSize: 13),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }
+
+                                return ListView.builder(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  itemCount: filtered.length,
+                                  itemBuilder: (context, index) {
+                                    final event = filtered[index];
+                                    return _buildEventCard(event, categories);
+                                  },
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      )),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => AddEventDialog.show(context, initialDate: selectedDate),
         icon: const Icon(Icons.add),
@@ -222,7 +301,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   decoration: BoxDecoration(
                     color: isSelected
                         ? Theme.of(context).colorScheme.primary
-                        : (isToday ? Colors.blue.withOpacity(0.12) : Colors.transparent),
+                        : (isToday ? Colors.blue.withValues(alpha: 0.12) : Colors.transparent),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Column(
@@ -290,25 +369,25 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     );
   }
 
-  Widget _buildEventCard(Event event) {
+  Widget _buildEventCard(Event event, List<Category> categories) {
     final start = event.startTime.toLocal();
     final end = event.endTime.toLocal();
+    final isReminder = event.eventType == 'reminder';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: ListTile(
-        leading: event.isAutoScheduled
-            ? const CircleAvatar(
-                backgroundColor: Colors.purpleAccent,
-                child: Icon(Icons.flash_on, color: Colors.white, size: 20),
-              )
-            : CircleAvatar(
-                backgroundColor: _getCategoryColor(event.category),
-                child: Text(
-                  event.title.isNotEmpty ? event.title[0].toUpperCase() : 'E',
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        leading: CircleAvatar(
+          backgroundColor: isReminder
+              ? Colors.amber.withValues(alpha: 0.15)
+              : _getCategoryColor(event.category).withValues(alpha: 0.15),
+          child: isReminder
+              ? const Icon(Icons.notifications_active, color: Colors.amber, size: 20)
+              : Text(
+                  _getCategoryEmoji(event.category, categories),
+                  style: const TextStyle(fontSize: 18),
                 ),
-              ),
+        ),
         title: Text(
           event.title,
           style: const TextStyle(fontWeight: FontWeight.bold),
@@ -318,13 +397,51 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
           children: [
             const SizedBox(height: 2),
             Text(
-              '${DateFormat('h:mm a').format(start)} – ${DateFormat('h:mm a').format(end)}',
+              isReminder
+                  ? 'Reminder at ${DateFormat('h:mm a').format(start)}'
+                  : '${DateFormat('h:mm a').format(start)} – ${DateFormat('h:mm a').format(end)}',
               style: const TextStyle(fontSize: 12, color: Colors.grey),
             ),
             const SizedBox(height: 4),
             Row(
               children: [
                 CategoryBadge(categorySlugOrName: event.category, compact: true),
+                if (isReminder) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.notifications, size: 10, color: Colors.amber),
+                        SizedBox(width: 3),
+                        Text('Reminder', style: TextStyle(fontSize: 10, color: Colors.amber, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                ],
+                if (event.isAutoScheduled) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.auto_awesome, size: 10, color: Colors.purple),
+                        SizedBox(width: 3),
+                        Text('Scheduled', style: TextStyle(fontSize: 10, color: Colors.purple, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                ],
                 if (event.isRecurring) ...[
                   const SizedBox(width: 6),
                   const Icon(Icons.repeat, size: 12, color: Colors.grey),
@@ -335,22 +452,57 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   const SizedBox(width: 6),
                   const Icon(Icons.auto_awesome, size: 12, color: Colors.purpleAccent),
                   const SizedBox(width: 2),
-                  Text('${event.prepMinutes ?? 60}m prep', style: const TextStyle(fontSize: 11, color: Colors.purpleAccent)),
+                  Text(
+                    (event.prepMinutes ?? 60) >= 60 && (event.prepMinutes ?? 60) % 60 == 0
+                        ? '${(event.prepMinutes ?? 60) ~/ 60}h prep'
+                        : '${event.prepMinutes ?? 60}m prep',
+                    style: const TextStyle(fontSize: 11, color: Colors.purpleAccent),
+                  ),
                 ],
               ],
             ),
           ],
         ),
-        trailing: IconButton(
-          icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
-          onPressed: () async {
-            await ref.read(eventDaoProvider).deleteEvent(event.id);
-            ref.invalidate(selectedDateEventsProvider);
-            ref.invalidate(todayEventsProvider);
-          },
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.edit_outlined, size: 20, color: Colors.blueGrey),
+              tooltip: 'Edit Event',
+              onPressed: () => EditEventDialog.show(context, event, occurrenceDate: event.startTime),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
+              tooltip: 'Delete Event',
+              onPressed: () async {
+                await ref.read(eventDaoProvider).deleteEvent(event.id);
+                ref.invalidate(selectedDateEventsProvider);
+                ref.invalidate(todayEventsProvider);
+                ref.invalidate(allEventsStreamProvider);
+              },
+            ),
+          ],
         ),
       ),
     );
+  }
+
+  String _getCategoryEmoji(String categorySlugOrName, List<Category> categories) {
+    for (final c in categories) {
+      if (c.slug.toLowerCase() == categorySlugOrName.toLowerCase() ||
+          c.name.toLowerCase() == categorySlugOrName.toLowerCase()) {
+        if (c.emoji.isNotEmpty) return c.emoji;
+      }
+    }
+    return switch (categorySlugOrName.toLowerCase()) {
+      'schoolwork' => '🎓',
+      'work' => '💼',
+      'research' => '🔬',
+      'personal' => '🧘',
+      'social' => '🎉',
+      'commute' || 'transportation' => '🚆',
+      _ => '🌐',
+    };
   }
 
   Color _getCategoryColor(String category) {
@@ -359,6 +511,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       'work' => const Color(0xFFE67E22),
       'research' => const Color(0xFF8E44AD),
       'personal' => const Color(0xFF27AE60),
+      'social' => const Color(0xFFEC4899),
       'commute' || 'transportation' => const Color(0xFFE74C3C),
       _ => const Color(0xFF3B82F6),
     };

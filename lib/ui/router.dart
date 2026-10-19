@@ -7,7 +7,6 @@ import 'package:go_router/go_router.dart';
 import 'package:kairos/ui/screens/calendar/calendar_screen.dart';
 import 'package:kairos/ui/screens/dashboard/dashboard_screen.dart';
 import 'package:kairos/ui/screens/habits/habits_screen.dart';
-import 'package:kairos/ui/screens/scheduler/scheduler_screen.dart';
 import 'package:kairos/ui/screens/settings/settings_screen.dart';
 import 'package:kairos/ui/screens/shell_screen.dart';
 import 'package:kairos/ui/screens/tasks/tasks_screen.dart';
@@ -58,20 +57,16 @@ final appRouter = GoRouter(
         StatefulShellBranch(
           routes: [
             GoRoute(
-              path: '/scheduler',
-              builder: (context, state) => const SchedulerScreen(),
-            ),
-          ],
-        ),
-        StatefulShellBranch(
-          routes: [
-            GoRoute(
               path: '/settings',
               builder: (context, state) => const SettingsScreen(),
             ),
           ],
         ),
       ],
+    ),
+    GoRoute(
+      path: '/scheduler',
+      redirect: (context, state) => '/calendar',
     ),
   ],
 );

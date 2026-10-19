@@ -54,11 +54,6 @@ class ShellScreen extends StatelessWidget {
                   label: Text('Habits'),
                 ),
                 NavigationRailDestination(
-                  icon: Icon(Icons.auto_awesome_outlined),
-                  selectedIcon: Icon(Icons.auto_awesome),
-                  label: Text('Scheduler'),
-                ),
-                NavigationRailDestination(
                   icon: Icon(Icons.settings_outlined),
                   selectedIcon: Icon(Icons.settings),
                   label: Text('Settings'),
@@ -100,11 +95,6 @@ class ShellScreen extends StatelessWidget {
             icon: Icon(Icons.repeat),
             selectedIcon: Icon(Icons.repeat_on),
             label: 'Habits',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.auto_awesome_outlined),
-            selectedIcon: Icon(Icons.auto_awesome),
-            label: 'Scheduler',
           ),
           NavigationDestination(
             icon: Icon(Icons.settings_outlined),

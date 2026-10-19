@@ -2,12 +2,17 @@
 //
 // Kairos: Student Smart Calendar, Habit Tracker, and Auto-Scheduler.
 
+import 'dart:async';
+import 'dart:ui';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:kairos/core/scheduler/scheduler_provider.dart';
 import 'package:kairos/data/database/app_database.dart';
+import 'package:kairos/services/habit_suggestion_service.dart';
 import 'package:kairos/services/notification_service.dart';
+import 'package:kairos/services/settings_service.dart';
+import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/router.dart';
 import 'package:kairos/ui/theme/app_theme.dart';
 import 'package:kairos/ui/theme/theme_provider.dart';
@@ -26,10 +31,45 @@ class KairosApp extends ConsumerStatefulWidget {
 }
 
 class _KairosAppState extends ConsumerState<KairosApp> {
+  Timer? _suggestionTimer;
+
   @override
   void initState() {
     super.initState();
     _bootstrapData();
+    _startHabitMonitoring();
+  }
+
+  @override
+  void dispose() {
+    _suggestionTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startHabitMonitoring() {
+    // Run initial checks 2 seconds after startup
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) _runHabitChecks();
+    });
+
+    // Run periodic checks every 15 minutes
+    _suggestionTimer = Timer.periodic(const Duration(minutes: 15), (_) {
+      if (mounted) _runHabitChecks();
+    });
+  }
+
+  Future<void> _runHabitChecks() async {
+    final db = ref.read(appDatabaseProvider);
+    final settings = ref.read(settingsNotifierProvider);
+    final notificationService = ref.read(notificationServiceProvider);
+    await HabitSuggestionService.instance.runPeriodicChecks(
+      db: db,
+      settings: settings,
+      notificationService: notificationService,
+      onHabitsUpdated: () {
+        ref.invalidate(weeklyHabitCompletionsProvider);
+      },
+    );
   }
 
   Future<void> _bootstrapData() async {
@@ -68,6 +108,13 @@ class _KairosAppState extends ConsumerState<KairosApp> {
           isSystem: const Value(true),
         ),
         CategoriesCompanion.insert(
+          name: 'Social',
+          slug: 'social',
+          emoji: const Value('🎉'),
+          colorHex: const Value('#EC4899'),
+          isSystem: const Value(true),
+        ),
+        CategoriesCompanion.insert(
           name: 'Commute',
           slug: 'transportation',
           emoji: const Value('🚆'),
@@ -85,6 +132,20 @@ class _KairosAppState extends ConsumerState<KairosApp> {
       for (final cat in defaults) {
         await db.categoryDao.insertCategory(cat);
       }
+    } else {
+      // Ensure Social category exists for existing databases
+      final hasSocial = existingCats.any((c) => c.slug == 'social');
+      if (!hasSocial) {
+        await db.categoryDao.insertCategory(
+          CategoriesCompanion.insert(
+            name: 'Social',
+            slug: 'social',
+            emoji: const Value('🎉'),
+            colorHex: const Value('#EC4899'),
+            isSystem: const Value(true),
+          ),
+        );
+      }
     }
 
     // Seed default holidays if empty
@@ -99,6 +160,14 @@ class _KairosAppState extends ConsumerState<KairosApp> {
     return MaterialApp.router(
       title: 'Kairos',
       debugShowCheckedModeBanner: false,
+      scrollBehavior: const MaterialScrollBehavior().copyWith(
+        dragDevices: {
+          PointerDeviceKind.touch,
+          PointerDeviceKind.mouse,
+          PointerDeviceKind.trackpad,
+          PointerDeviceKind.stylus,
+        },
+      ),
       theme: AppTheme.buildTheme(brightness: Brightness.light, paletteId: paletteId),
       darkTheme: AppTheme.buildTheme(brightness: Brightness.dark, paletteId: paletteId),
       themeMode: mode,

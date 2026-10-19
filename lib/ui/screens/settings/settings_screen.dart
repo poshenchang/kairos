@@ -13,7 +13,6 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:kairos/core/scheduler/scheduler_provider.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/notification_service.dart';
@@ -45,8 +44,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
     final currentMode = ref.watch(themeModeProvider);
     final currentPalette = ref.watch(themePaletteProvider);
     final settings = ref.watch(settingsNotifierProvider);
@@ -212,7 +209,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         width: isSelected ? 2 : 1,
                       ),
                       color: isSelected
-                          ? theme.colorScheme.primary.withOpacity(isDark ? 0.15 : 0.08)
+                          ? theme.colorScheme.primary.withValues(alpha: isDark ? 0.15 : 0.08)
                           : Colors.transparent,
                     ),
                     child: Row(
@@ -287,6 +284,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ref.read(settingsNotifierProvider.notifier).setNotificationsEnabled(val);
               },
             ),
+            const Divider(height: 16),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Suggest Daily Habits During Free Time', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+              subtitle: const Text('When free time (30+ min) is detected between 9am and 10pm, suggest an uncompleted and unscheduled daily habit randomly.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+              value: settings.suggestHabitsInFreeTime,
+              onChanged: settings.notificationsEnabled
+                  ? (val) {
+                      ref.read(settingsNotifierProvider.notifier).setSuggestHabitsInFreeTime(val);
+                    }
+                  : null,
+            ),
+
             const SizedBox(height: 8),
             OutlinedButton.icon(
               icon: const Icon(Icons.notifications_active, size: 16),
@@ -313,16 +323,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               segments: const [
                 ButtonSegment(
                   value: 'timetable',
-                  icon: Icon(Icons.calendar_view_week),
-                  label: Text('Timetable Grid (Default)'),
+                  icon: Icon(Icons.calendar_view_week, size: 16),
+                  label: Text('Timetable'),
                 ),
                 ButtonSegment(
                   value: 'list',
-                  icon: Icon(Icons.view_agenda),
-                  label: Text('List View'),
+                  icon: Icon(Icons.view_agenda, size: 16),
+                  label: Text('Agenda'),
+                ),
+                ButtonSegment(
+                  value: 'all',
+                  icon: Icon(Icons.category, size: 16),
+                  label: Text('All Events'),
                 ),
               ],
-              selected: {settings.calendarViewMode},
+              selected: {settings.calendarViewMode == 'all' ? 'all' : (settings.calendarViewMode == 'list' ? 'list' : 'timetable')},
               onSelectionChanged: (val) {
                 ref.read(settingsNotifierProvider.notifier).setCalendarViewMode(val.first);
               },
@@ -389,7 +404,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         const SizedBox(height: 8),
                         ElevatedButton.icon(
                           icon: const Icon(Icons.auto_awesome, size: 16),
-                          label: const Text('Load Standard Academic Holidays'),
+                          label: const Text('Load Standard Academic & Regional Holidays'),
                           onPressed: () async {
                             await holidayDao.seedDefaultHolidays(DateTime.now().year);
                             ref.invalidate(selectedDateEventsProvider);
@@ -401,47 +416,130 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   );
                 }
 
-                return Column(
-                  children: [
-                    ...holidays.map((h) {
-                      final dateRange = h.endDate != null
-                          ? '${DateFormat('MMM d').format(h.date)} – ${DateFormat('MMM d, yyyy').format(h.endDate!)}'
-                          : DateFormat('MMM d, yyyy').format(h.date);
+                // Group holidays by groupName
+                final groups = <String, List<Holiday>>{};
+                for (final h in holidays) {
+                  final g = h.groupName.isNotEmpty ? h.groupName : 'Custom';
+                  groups.putIfAbsent(g, () => []).add(h);
+                }
 
-                      return ListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(
-                          h.isEnabled ? Icons.event_busy : Icons.event_available,
-                          color: h.isEnabled ? Colors.orangeAccent : Colors.grey,
-                          size: 20,
+                const knownOrder = ['Taiwanese Holidays', 'US Holidays', 'Academic Breaks', 'Custom'];
+                final sortedGroupNames = groups.keys.toList()
+                  ..sort((a, b) {
+                    final idxA = knownOrder.indexOf(a);
+                    final idxB = knownOrder.indexOf(b);
+                    if (idxA != -1 && idxB != -1) return idxA.compareTo(idxB);
+                    if (idxA != -1) return -1;
+                    if (idxB != -1) return 1;
+                    return a.compareTo(b);
+                  });
+
+                return Column(
+                  children: sortedGroupNames.map((groupName) {
+                    final groupHolidays = groups[groupName]!;
+                    final activeCount = groupHolidays.where((h) => h.isEnabled).length;
+                    final allActive = activeCount == groupHolidays.length;
+
+                    String groupEmoji;
+                    if (groupName.contains('Taiwan')) {
+                      groupEmoji = '🇹🇼';
+                    } else if (groupName.contains('US')) {
+                      groupEmoji = '🇺🇸';
+                    } else if (groupName.contains('Academic')) {
+                      groupEmoji = '🎓';
+                    } else {
+                      groupEmoji = '🌴';
+                    }
+
+                    return Container(
+                      margin: const EdgeInsets.only(top: 8),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Theme.of(context).brightness == Brightness.dark
+                              ? const Color(0xFF334155)
+                              : const Color(0xFFE2E8F0),
                         ),
-                        title: Text(h.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                        subtitle: Text(dateRange, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                      ),
+                      child: ExpansionTile(
+                        initiallyExpanded: groupName.contains('Taiwan') || groupName.contains('Academic'),
+                        tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                        leading: Text(groupEmoji, style: const TextStyle(fontSize: 20)),
+                        title: Text(
+                          groupName,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                        ),
+                        subtitle: Text(
+                          '$activeCount of ${groupHolidays.length} active',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: activeCount > 0 ? Colors.green : Colors.grey,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Switch(
-                              value: h.isEnabled,
+                              value: allActive,
                               onChanged: (val) async {
-                                await holidayDao.toggleHoliday(h.id, val);
-                                ref.invalidate(selectedDateEventsProvider);
-                                ref.invalidate(todayEventsProvider);
-                              },
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.delete_outline, size: 18, color: Colors.grey),
-                              onPressed: () async {
-                                await holidayDao.deleteHoliday(h.id);
+                                await holidayDao.toggleHolidayGroup(groupName, val);
                                 ref.invalidate(selectedDateEventsProvider);
                                 ref.invalidate(todayEventsProvider);
                               },
                             ),
                           ],
                         ),
-                      );
-                    }),
-                  ],
+                        children: [
+                          const Divider(height: 1),
+                          ...groupHolidays.map((h) {
+                            final dateRange = h.endDate != null
+                                ? '${DateFormat('MMM d').format(h.date)} – ${DateFormat('MMM d').format(h.endDate!)} (Annual)'
+                                : '${DateFormat('MMMM d').format(h.date)} (Annual)';
+
+                            return ListTile(
+                              dense: true,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                              leading: Icon(
+                                h.isEnabled ? Icons.event_busy : Icons.event_available,
+                                color: h.isEnabled ? Colors.orangeAccent : Colors.grey,
+                                size: 18,
+                              ),
+                              title: Text(h.name, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
+                              subtitle: Text(dateRange, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Switch(
+                                    value: h.isEnabled,
+                                    onChanged: (val) async {
+                                      await holidayDao.toggleHoliday(h.id, val);
+                                      ref.invalidate(selectedDateEventsProvider);
+                                      ref.invalidate(todayEventsProvider);
+                                    },
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.blueAccent),
+                                    tooltip: 'Edit Holiday',
+                                    onPressed: () => _showEditHolidayDialog(context, holidayDao, h),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, size: 18, color: Colors.grey),
+                                    tooltip: 'Delete Holiday',
+                                    onPressed: () async {
+                                      await holidayDao.deleteHoliday(h.id);
+                                      ref.invalidate(selectedDateEventsProvider);
+                                      ref.invalidate(todayEventsProvider);
+                                    },
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
+                    );
+                  }).toList(),
                 );
               },
             ),
@@ -455,6 +553,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final nameCtrl = TextEditingController();
     DateTime startDate = DateTime.now();
     DateTime? endDate;
+    String selectedGroup = 'Taiwanese Holidays';
 
     showDialog(
       context: context,
@@ -462,58 +561,77 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         builder: (ctx, setDialogState) {
           return AlertDialog(
             title: const Text('Add Academic Break / Holiday'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Holiday or Break Name',
-                    hintText: 'e.g. Spring Break, Fall Reading Day',
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Holiday or Break Name',
+                      hintText: 'e.g. Spring Break, Fall Reading Day',
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.calendar_today, size: 20),
-                  title: Text('Start Date: ${DateFormat('MMM d, yyyy').format(startDate)}'),
-                  onTap: () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: startDate,
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime(2035),
-                    );
-                    if (picked != null) setDialogState(() => startDate = picked);
-                  },
-                ),
-                ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.event_repeat, size: 20),
-                  title: Text(
-                    endDate != null
-                        ? 'End Date: ${DateFormat('MMM d, yyyy').format(endDate!)}'
-                        : 'Single-day holiday (tap to make multi-day break)',
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedGroup,
+                    decoration: const InputDecoration(
+                      labelText: 'Holiday Group',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'Taiwanese Holidays', child: Text('🇹🇼 Taiwanese Holidays')),
+                      DropdownMenuItem(value: 'US Holidays', child: Text('🇺🇸 US Holidays')),
+                      DropdownMenuItem(value: 'Academic Breaks', child: Text('🎓 Academic Breaks')),
+                      DropdownMenuItem(value: 'Custom', child: Text('🌴 Custom Breaks')),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) setDialogState(() => selectedGroup = val);
+                    },
                   ),
-                  trailing: endDate != null
-                      ? IconButton(
-                          icon: const Icon(Icons.close, size: 16),
-                          onPressed: () => setDialogState(() => endDate = null),
-                        )
-                      : null,
-                  onTap: () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: endDate ?? startDate.add(const Duration(days: 4)),
-                      firstDate: startDate,
-                      lastDate: DateTime(2035),
-                    );
-                    if (picked != null) setDialogState(() => endDate = picked);
-                  },
-                ),
-              ],
+                  const SizedBox(height: 12),
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.calendar_today, size: 20),
+                    title: Text('Start Date: ${DateFormat('MMM d, yyyy').format(startDate)}'),
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: startDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2035),
+                      );
+                      if (picked != null) setDialogState(() => startDate = picked);
+                    },
+                  ),
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.event_repeat, size: 20),
+                    title: Text(
+                      endDate != null
+                          ? 'End Date: ${DateFormat('MMM d, yyyy').format(endDate!)}'
+                          : 'Single-day holiday (tap to make multi-day break)',
+                    ),
+                    trailing: endDate != null
+                        ? IconButton(
+                            icon: const Icon(Icons.close, size: 16),
+                            onPressed: () => setDialogState(() => endDate = null),
+                          )
+                        : null,
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: endDate ?? startDate.add(const Duration(days: 4)),
+                        firstDate: startDate,
+                        lastDate: DateTime(2035),
+                      );
+                      if (picked != null) setDialogState(() => endDate = picked);
+                    },
+                  ),
+                ],
+              ),
             ),
             actions: [
               TextButton(
@@ -526,6 +644,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   await holidayDao.insertHoliday(
                     HolidaysCompanion.insert(
                       name: nameCtrl.text.trim(),
+                      groupName: Value(selectedGroup),
                       date: startDate,
                       endDate: endDate != null ? Value(endDate!) : const Value(null),
                       isEnabled: const Value(true),
@@ -546,6 +665,121 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  void _showEditHolidayDialog(BuildContext context, HolidayDao holidayDao, Holiday holiday) {
+    final nameCtrl = TextEditingController(text: holiday.name);
+    DateTime startDate = holiday.date;
+    DateTime? endDate = holiday.endDate;
+    String selectedGroup = holiday.groupName;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return AlertDialog(
+            title: const Text('Edit Holiday / Academic Break'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Holiday or Break Name',
+                      hintText: 'e.g. Spring Break, Fall Reading Day',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: selectedGroup,
+                    decoration: const InputDecoration(
+                      labelText: 'Holiday Group',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'Taiwanese Holidays', child: Text('🇹🇼 Taiwanese Holidays')),
+                      DropdownMenuItem(value: 'US Holidays', child: Text('🇺🇸 US Holidays')),
+                      DropdownMenuItem(value: 'Academic Breaks', child: Text('🎓 Academic Breaks')),
+                      DropdownMenuItem(value: 'Custom', child: Text('🌴 Custom Breaks')),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) setDialogState(() => selectedGroup = val);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.calendar_today, size: 20),
+                    title: Text('Start Date: ${DateFormat('MMMM d').format(startDate)} (Repeats annually)'),
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: startDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2035),
+                      );
+                      if (picked != null) setDialogState(() => startDate = picked);
+                    },
+                  ),
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.event_repeat, size: 20),
+                    title: Text(
+                      endDate != null
+                          ? 'End Date: ${DateFormat('MMMM d').format(endDate!)}'
+                          : 'Single-day holiday (tap to make multi-day break)',
+                    ),
+                    trailing: endDate != null
+                        ? IconButton(
+                            icon: const Icon(Icons.close, size: 16),
+                            onPressed: () => setDialogState(() => endDate = null),
+                          )
+                        : null,
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: endDate ?? startDate.add(const Duration(days: 4)),
+                        firstDate: startDate,
+                        lastDate: DateTime(2035),
+                      );
+                      if (picked != null) setDialogState(() => endDate = picked);
+                    },
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  if (nameCtrl.text.trim().isEmpty) return;
+                  await holidayDao.updateHoliday(
+                    holiday.toCompanion(true).copyWith(
+                      name: Value(nameCtrl.text.trim()),
+                      groupName: Value(selectedGroup),
+                      date: Value(startDate),
+                      endDate: endDate != null ? Value(endDate!) : const Value(null),
+                    ),
+                  );
+                  ref.invalidate(selectedDateEventsProvider);
+                  ref.invalidate(todayEventsProvider);
+                  if (dialogContext.mounted) {
+                    Navigator.of(dialogContext).pop();
+                  }
+                },
+                child: const Text('Save Changes'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildSupabaseSyncCard(BuildContext context) {
     return Card(
       child: Padding(
@@ -558,7 +792,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.15),
+                    color: Colors.green.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Row(
@@ -793,6 +1027,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         isSystem: const Value(true),
                       ),
                       CategoriesCompanion.insert(
+                        name: 'Social',
+                        slug: 'social',
+                        emoji: const Value('🎉'),
+                        colorHex: const Value('#EC4899'),
+                        isSystem: const Value(true),
+                      ),
+                      CategoriesCompanion.insert(
                         name: 'Commute',
                         slug: 'transportation',
                         emoji: const Value('🚆'),
@@ -830,7 +1071,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return Card(
       child: ListTile(
         leading: const Icon(Icons.school, color: Colors.blueAccent, size: 30),
-        title: const Text('Kairos Student Guide & Tutorial', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('Kairos Guide & Tutorial', style: TextStyle(fontWeight: FontWeight.bold)),
         subtitle: const Text('Review tips for auto-scheduling, frequency habits, and transit blocks'),
         trailing: const Icon(Icons.chevron_right),
         onTap: () => HelpGuideDialog.show(context),

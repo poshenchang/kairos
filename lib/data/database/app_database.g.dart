@@ -1946,6 +1946,14 @@ class $HabitsTable extends Habits with TableInfo<$HabitsTable, Habit> {
       type: DriftSqlType.string,
       requiredDuringInsert: false,
       defaultValue: const Constant('any'));
+  static const VerificationMeta _daysFilterMeta =
+      const VerificationMeta('daysFilter');
+  @override
+  late final GeneratedColumn<String> daysFilter = GeneratedColumn<String>(
+      'days_filter', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('all'));
   static const VerificationMeta _isActiveMeta =
       const VerificationMeta('isActive');
   @override
@@ -1992,6 +2000,7 @@ class $HabitsTable extends Habits with TableInfo<$HabitsTable, Habit> {
         minSessionMinutes,
         maxSessionMinutes,
         preferredWindow,
+        daysFilter,
         isActive,
         isDeleted,
         createdAt,
@@ -2050,6 +2059,12 @@ class $HabitsTable extends Habits with TableInfo<$HabitsTable, Habit> {
           preferredWindow.isAcceptableOrUnknown(
               data['preferred_window']!, _preferredWindowMeta));
     }
+    if (data.containsKey('days_filter')) {
+      context.handle(
+          _daysFilterMeta,
+          daysFilter.isAcceptableOrUnknown(
+              data['days_filter']!, _daysFilterMeta));
+    }
     if (data.containsKey('is_active')) {
       context.handle(_isActiveMeta,
           isActive.isAcceptableOrUnknown(data['is_active']!, _isActiveMeta));
@@ -2092,6 +2107,8 @@ class $HabitsTable extends Habits with TableInfo<$HabitsTable, Habit> {
           DriftSqlType.int, data['${effectivePrefix}max_session_minutes'])!,
       preferredWindow: attachedDatabase.typeMapping.read(
           DriftSqlType.string, data['${effectivePrefix}preferred_window'])!,
+      daysFilter: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}days_filter'])!,
       isActive: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}is_active'])!,
       isDeleted: attachedDatabase.typeMapping
@@ -2127,6 +2144,9 @@ class Habit extends DataClass implements Insertable<Habit> {
   /// Preferred time-of-day: "morning" | "afternoon" | "evening" | "any".
   final String preferredWindow;
 
+  /// Days of the week filter: "all" | "weekdays" | "weekends".
+  final String daysFilter;
+
   /// Whether the habit is currently active (visible to scheduler).
   final bool isActive;
   final bool isDeleted;
@@ -2141,6 +2161,7 @@ class Habit extends DataClass implements Insertable<Habit> {
       required this.minSessionMinutes,
       required this.maxSessionMinutes,
       required this.preferredWindow,
+      required this.daysFilter,
       required this.isActive,
       required this.isDeleted,
       required this.createdAt,
@@ -2158,6 +2179,7 @@ class Habit extends DataClass implements Insertable<Habit> {
     map['min_session_minutes'] = Variable<int>(minSessionMinutes);
     map['max_session_minutes'] = Variable<int>(maxSessionMinutes);
     map['preferred_window'] = Variable<String>(preferredWindow);
+    map['days_filter'] = Variable<String>(daysFilter);
     map['is_active'] = Variable<bool>(isActive);
     map['is_deleted'] = Variable<bool>(isDeleted);
     map['created_at'] = Variable<DateTime>(createdAt);
@@ -2177,6 +2199,7 @@ class Habit extends DataClass implements Insertable<Habit> {
       minSessionMinutes: Value(minSessionMinutes),
       maxSessionMinutes: Value(maxSessionMinutes),
       preferredWindow: Value(preferredWindow),
+      daysFilter: Value(daysFilter),
       isActive: Value(isActive),
       isDeleted: Value(isDeleted),
       createdAt: Value(createdAt),
@@ -2197,6 +2220,7 @@ class Habit extends DataClass implements Insertable<Habit> {
       minSessionMinutes: serializer.fromJson<int>(json['minSessionMinutes']),
       maxSessionMinutes: serializer.fromJson<int>(json['maxSessionMinutes']),
       preferredWindow: serializer.fromJson<String>(json['preferredWindow']),
+      daysFilter: serializer.fromJson<String>(json['daysFilter']),
       isActive: serializer.fromJson<bool>(json['isActive']),
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
@@ -2215,6 +2239,7 @@ class Habit extends DataClass implements Insertable<Habit> {
       'minSessionMinutes': serializer.toJson<int>(minSessionMinutes),
       'maxSessionMinutes': serializer.toJson<int>(maxSessionMinutes),
       'preferredWindow': serializer.toJson<String>(preferredWindow),
+      'daysFilter': serializer.toJson<String>(daysFilter),
       'isActive': serializer.toJson<bool>(isActive),
       'isDeleted': serializer.toJson<bool>(isDeleted),
       'createdAt': serializer.toJson<DateTime>(createdAt),
@@ -2231,6 +2256,7 @@ class Habit extends DataClass implements Insertable<Habit> {
           int? minSessionMinutes,
           int? maxSessionMinutes,
           String? preferredWindow,
+          String? daysFilter,
           bool? isActive,
           bool? isDeleted,
           DateTime? createdAt,
@@ -2245,6 +2271,7 @@ class Habit extends DataClass implements Insertable<Habit> {
         minSessionMinutes: minSessionMinutes ?? this.minSessionMinutes,
         maxSessionMinutes: maxSessionMinutes ?? this.maxSessionMinutes,
         preferredWindow: preferredWindow ?? this.preferredWindow,
+        daysFilter: daysFilter ?? this.daysFilter,
         isActive: isActive ?? this.isActive,
         isDeleted: isDeleted ?? this.isDeleted,
         createdAt: createdAt ?? this.createdAt,
@@ -2269,6 +2296,8 @@ class Habit extends DataClass implements Insertable<Habit> {
       preferredWindow: data.preferredWindow.present
           ? data.preferredWindow.value
           : this.preferredWindow,
+      daysFilter:
+          data.daysFilter.present ? data.daysFilter.value : this.daysFilter,
       isActive: data.isActive.present ? data.isActive.value : this.isActive,
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
@@ -2287,6 +2316,7 @@ class Habit extends DataClass implements Insertable<Habit> {
           ..write('minSessionMinutes: $minSessionMinutes, ')
           ..write('maxSessionMinutes: $maxSessionMinutes, ')
           ..write('preferredWindow: $preferredWindow, ')
+          ..write('daysFilter: $daysFilter, ')
           ..write('isActive: $isActive, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('createdAt: $createdAt, ')
@@ -2305,6 +2335,7 @@ class Habit extends DataClass implements Insertable<Habit> {
       minSessionMinutes,
       maxSessionMinutes,
       preferredWindow,
+      daysFilter,
       isActive,
       isDeleted,
       createdAt,
@@ -2321,6 +2352,7 @@ class Habit extends DataClass implements Insertable<Habit> {
           other.minSessionMinutes == this.minSessionMinutes &&
           other.maxSessionMinutes == this.maxSessionMinutes &&
           other.preferredWindow == this.preferredWindow &&
+          other.daysFilter == this.daysFilter &&
           other.isActive == this.isActive &&
           other.isDeleted == this.isDeleted &&
           other.createdAt == this.createdAt &&
@@ -2336,6 +2368,7 @@ class HabitsCompanion extends UpdateCompanion<Habit> {
   final Value<int> minSessionMinutes;
   final Value<int> maxSessionMinutes;
   final Value<String> preferredWindow;
+  final Value<String> daysFilter;
   final Value<bool> isActive;
   final Value<bool> isDeleted;
   final Value<DateTime> createdAt;
@@ -2349,6 +2382,7 @@ class HabitsCompanion extends UpdateCompanion<Habit> {
     this.minSessionMinutes = const Value.absent(),
     this.maxSessionMinutes = const Value.absent(),
     this.preferredWindow = const Value.absent(),
+    this.daysFilter = const Value.absent(),
     this.isActive = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.createdAt = const Value.absent(),
@@ -2363,6 +2397,7 @@ class HabitsCompanion extends UpdateCompanion<Habit> {
     this.minSessionMinutes = const Value.absent(),
     this.maxSessionMinutes = const Value.absent(),
     this.preferredWindow = const Value.absent(),
+    this.daysFilter = const Value.absent(),
     this.isActive = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.createdAt = const Value.absent(),
@@ -2377,6 +2412,7 @@ class HabitsCompanion extends UpdateCompanion<Habit> {
     Expression<int>? minSessionMinutes,
     Expression<int>? maxSessionMinutes,
     Expression<String>? preferredWindow,
+    Expression<String>? daysFilter,
     Expression<bool>? isActive,
     Expression<bool>? isDeleted,
     Expression<DateTime>? createdAt,
@@ -2392,6 +2428,7 @@ class HabitsCompanion extends UpdateCompanion<Habit> {
       if (minSessionMinutes != null) 'min_session_minutes': minSessionMinutes,
       if (maxSessionMinutes != null) 'max_session_minutes': maxSessionMinutes,
       if (preferredWindow != null) 'preferred_window': preferredWindow,
+      if (daysFilter != null) 'days_filter': daysFilter,
       if (isActive != null) 'is_active': isActive,
       if (isDeleted != null) 'is_deleted': isDeleted,
       if (createdAt != null) 'created_at': createdAt,
@@ -2408,6 +2445,7 @@ class HabitsCompanion extends UpdateCompanion<Habit> {
       Value<int>? minSessionMinutes,
       Value<int>? maxSessionMinutes,
       Value<String>? preferredWindow,
+      Value<String>? daysFilter,
       Value<bool>? isActive,
       Value<bool>? isDeleted,
       Value<DateTime>? createdAt,
@@ -2422,6 +2460,7 @@ class HabitsCompanion extends UpdateCompanion<Habit> {
       minSessionMinutes: minSessionMinutes ?? this.minSessionMinutes,
       maxSessionMinutes: maxSessionMinutes ?? this.maxSessionMinutes,
       preferredWindow: preferredWindow ?? this.preferredWindow,
+      daysFilter: daysFilter ?? this.daysFilter,
       isActive: isActive ?? this.isActive,
       isDeleted: isDeleted ?? this.isDeleted,
       createdAt: createdAt ?? this.createdAt,
@@ -2457,6 +2496,9 @@ class HabitsCompanion extends UpdateCompanion<Habit> {
     if (preferredWindow.present) {
       map['preferred_window'] = Variable<String>(preferredWindow.value);
     }
+    if (daysFilter.present) {
+      map['days_filter'] = Variable<String>(daysFilter.value);
+    }
     if (isActive.present) {
       map['is_active'] = Variable<bool>(isActive.value);
     }
@@ -2483,6 +2525,7 @@ class HabitsCompanion extends UpdateCompanion<Habit> {
           ..write('minSessionMinutes: $minSessionMinutes, ')
           ..write('maxSessionMinutes: $maxSessionMinutes, ')
           ..write('preferredWindow: $preferredWindow, ')
+          ..write('daysFilter: $daysFilter, ')
           ..write('isActive: $isActive, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('createdAt: $createdAt, ')
@@ -2870,6 +2913,14 @@ class $HolidaysTable extends Holidays with TableInfo<$HolidaysTable, Holiday> {
           GeneratedColumn.checkTextLength(minTextLength: 1, maxTextLength: 100),
       type: DriftSqlType.string,
       requiredDuringInsert: true);
+  static const VerificationMeta _groupNameMeta =
+      const VerificationMeta('groupName');
+  @override
+  late final GeneratedColumn<String> groupName = GeneratedColumn<String>(
+      'group_name', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('US Holidays'));
   static const VerificationMeta _dateMeta = const VerificationMeta('date');
   @override
   late final GeneratedColumn<DateTime> date = GeneratedColumn<DateTime>(
@@ -2892,7 +2943,8 @@ class $HolidaysTable extends Holidays with TableInfo<$HolidaysTable, Holiday> {
           GeneratedColumn.constraintIsAlways('CHECK ("is_enabled" IN (0, 1))'),
       defaultValue: const Constant(true));
   @override
-  List<GeneratedColumn> get $columns => [id, name, date, endDate, isEnabled];
+  List<GeneratedColumn> get $columns =>
+      [id, name, groupName, date, endDate, isEnabled];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -2911,6 +2963,10 @@ class $HolidaysTable extends Holidays with TableInfo<$HolidaysTable, Holiday> {
           _nameMeta, name.isAcceptableOrUnknown(data['name']!, _nameMeta));
     } else if (isInserting) {
       context.missing(_nameMeta);
+    }
+    if (data.containsKey('group_name')) {
+      context.handle(_groupNameMeta,
+          groupName.isAcceptableOrUnknown(data['group_name']!, _groupNameMeta));
     }
     if (data.containsKey('date')) {
       context.handle(
@@ -2939,6 +2995,8 @@ class $HolidaysTable extends Holidays with TableInfo<$HolidaysTable, Holiday> {
           .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
       name: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}name'])!,
+      groupName: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}group_name'])!,
       date: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}date'])!,
       endDate: attachedDatabase.typeMapping
@@ -2957,12 +3015,14 @@ class $HolidaysTable extends Holidays with TableInfo<$HolidaysTable, Holiday> {
 class Holiday extends DataClass implements Insertable<Holiday> {
   final int id;
   final String name;
+  final String groupName;
   final DateTime date;
   final DateTime? endDate;
   final bool isEnabled;
   const Holiday(
       {required this.id,
       required this.name,
+      required this.groupName,
       required this.date,
       this.endDate,
       required this.isEnabled});
@@ -2971,6 +3031,7 @@ class Holiday extends DataClass implements Insertable<Holiday> {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
     map['name'] = Variable<String>(name);
+    map['group_name'] = Variable<String>(groupName);
     map['date'] = Variable<DateTime>(date);
     if (!nullToAbsent || endDate != null) {
       map['end_date'] = Variable<DateTime>(endDate);
@@ -2983,6 +3044,7 @@ class Holiday extends DataClass implements Insertable<Holiday> {
     return HolidaysCompanion(
       id: Value(id),
       name: Value(name),
+      groupName: Value(groupName),
       date: Value(date),
       endDate: endDate == null && nullToAbsent
           ? const Value.absent()
@@ -2997,6 +3059,7 @@ class Holiday extends DataClass implements Insertable<Holiday> {
     return Holiday(
       id: serializer.fromJson<int>(json['id']),
       name: serializer.fromJson<String>(json['name']),
+      groupName: serializer.fromJson<String>(json['groupName']),
       date: serializer.fromJson<DateTime>(json['date']),
       endDate: serializer.fromJson<DateTime?>(json['endDate']),
       isEnabled: serializer.fromJson<bool>(json['isEnabled']),
@@ -3008,6 +3071,7 @@ class Holiday extends DataClass implements Insertable<Holiday> {
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
       'name': serializer.toJson<String>(name),
+      'groupName': serializer.toJson<String>(groupName),
       'date': serializer.toJson<DateTime>(date),
       'endDate': serializer.toJson<DateTime?>(endDate),
       'isEnabled': serializer.toJson<bool>(isEnabled),
@@ -3017,12 +3081,14 @@ class Holiday extends DataClass implements Insertable<Holiday> {
   Holiday copyWith(
           {int? id,
           String? name,
+          String? groupName,
           DateTime? date,
           Value<DateTime?> endDate = const Value.absent(),
           bool? isEnabled}) =>
       Holiday(
         id: id ?? this.id,
         name: name ?? this.name,
+        groupName: groupName ?? this.groupName,
         date: date ?? this.date,
         endDate: endDate.present ? endDate.value : this.endDate,
         isEnabled: isEnabled ?? this.isEnabled,
@@ -3031,6 +3097,7 @@ class Holiday extends DataClass implements Insertable<Holiday> {
     return Holiday(
       id: data.id.present ? data.id.value : this.id,
       name: data.name.present ? data.name.value : this.name,
+      groupName: data.groupName.present ? data.groupName.value : this.groupName,
       date: data.date.present ? data.date.value : this.date,
       endDate: data.endDate.present ? data.endDate.value : this.endDate,
       isEnabled: data.isEnabled.present ? data.isEnabled.value : this.isEnabled,
@@ -3042,6 +3109,7 @@ class Holiday extends DataClass implements Insertable<Holiday> {
     return (StringBuffer('Holiday(')
           ..write('id: $id, ')
           ..write('name: $name, ')
+          ..write('groupName: $groupName, ')
           ..write('date: $date, ')
           ..write('endDate: $endDate, ')
           ..write('isEnabled: $isEnabled')
@@ -3050,13 +3118,15 @@ class Holiday extends DataClass implements Insertable<Holiday> {
   }
 
   @override
-  int get hashCode => Object.hash(id, name, date, endDate, isEnabled);
+  int get hashCode =>
+      Object.hash(id, name, groupName, date, endDate, isEnabled);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is Holiday &&
           other.id == this.id &&
           other.name == this.name &&
+          other.groupName == this.groupName &&
           other.date == this.date &&
           other.endDate == this.endDate &&
           other.isEnabled == this.isEnabled);
@@ -3065,12 +3135,14 @@ class Holiday extends DataClass implements Insertable<Holiday> {
 class HolidaysCompanion extends UpdateCompanion<Holiday> {
   final Value<int> id;
   final Value<String> name;
+  final Value<String> groupName;
   final Value<DateTime> date;
   final Value<DateTime?> endDate;
   final Value<bool> isEnabled;
   const HolidaysCompanion({
     this.id = const Value.absent(),
     this.name = const Value.absent(),
+    this.groupName = const Value.absent(),
     this.date = const Value.absent(),
     this.endDate = const Value.absent(),
     this.isEnabled = const Value.absent(),
@@ -3078,6 +3150,7 @@ class HolidaysCompanion extends UpdateCompanion<Holiday> {
   HolidaysCompanion.insert({
     this.id = const Value.absent(),
     required String name,
+    this.groupName = const Value.absent(),
     required DateTime date,
     this.endDate = const Value.absent(),
     this.isEnabled = const Value.absent(),
@@ -3086,6 +3159,7 @@ class HolidaysCompanion extends UpdateCompanion<Holiday> {
   static Insertable<Holiday> custom({
     Expression<int>? id,
     Expression<String>? name,
+    Expression<String>? groupName,
     Expression<DateTime>? date,
     Expression<DateTime>? endDate,
     Expression<bool>? isEnabled,
@@ -3093,6 +3167,7 @@ class HolidaysCompanion extends UpdateCompanion<Holiday> {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (name != null) 'name': name,
+      if (groupName != null) 'group_name': groupName,
       if (date != null) 'date': date,
       if (endDate != null) 'end_date': endDate,
       if (isEnabled != null) 'is_enabled': isEnabled,
@@ -3102,12 +3177,14 @@ class HolidaysCompanion extends UpdateCompanion<Holiday> {
   HolidaysCompanion copyWith(
       {Value<int>? id,
       Value<String>? name,
+      Value<String>? groupName,
       Value<DateTime>? date,
       Value<DateTime?>? endDate,
       Value<bool>? isEnabled}) {
     return HolidaysCompanion(
       id: id ?? this.id,
       name: name ?? this.name,
+      groupName: groupName ?? this.groupName,
       date: date ?? this.date,
       endDate: endDate ?? this.endDate,
       isEnabled: isEnabled ?? this.isEnabled,
@@ -3122,6 +3199,9 @@ class HolidaysCompanion extends UpdateCompanion<Holiday> {
     }
     if (name.present) {
       map['name'] = Variable<String>(name.value);
+    }
+    if (groupName.present) {
+      map['group_name'] = Variable<String>(groupName.value);
     }
     if (date.present) {
       map['date'] = Variable<DateTime>(date.value);
@@ -3140,6 +3220,7 @@ class HolidaysCompanion extends UpdateCompanion<Holiday> {
     return (StringBuffer('HolidaysCompanion(')
           ..write('id: $id, ')
           ..write('name: $name, ')
+          ..write('groupName: $groupName, ')
           ..write('date: $date, ')
           ..write('endDate: $endDate, ')
           ..write('isEnabled: $isEnabled')
@@ -4410,6 +4491,7 @@ typedef $$HabitsTableCreateCompanionBuilder = HabitsCompanion Function({
   Value<int> minSessionMinutes,
   Value<int> maxSessionMinutes,
   Value<String> preferredWindow,
+  Value<String> daysFilter,
   Value<bool> isActive,
   Value<bool> isDeleted,
   Value<DateTime> createdAt,
@@ -4424,6 +4506,7 @@ typedef $$HabitsTableUpdateCompanionBuilder = HabitsCompanion Function({
   Value<int> minSessionMinutes,
   Value<int> maxSessionMinutes,
   Value<String> preferredWindow,
+  Value<String> daysFilter,
   Value<bool> isActive,
   Value<bool> isDeleted,
   Value<DateTime> createdAt,
@@ -4485,6 +4568,9 @@ class $$HabitsTableFilterComposer
   ColumnFilters<String> get preferredWindow => $composableBuilder(
       column: $table.preferredWindow,
       builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get daysFilter => $composableBuilder(
+      column: $table.daysFilter, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<bool> get isActive => $composableBuilder(
       column: $table.isActive, builder: (column) => ColumnFilters(column));
@@ -4557,6 +4643,9 @@ class $$HabitsTableOrderingComposer
       column: $table.preferredWindow,
       builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get daysFilter => $composableBuilder(
+      column: $table.daysFilter, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<bool> get isActive => $composableBuilder(
       column: $table.isActive, builder: (column) => ColumnOrderings(column));
 
@@ -4602,6 +4691,9 @@ class $$HabitsTableAnnotationComposer
 
   GeneratedColumn<String> get preferredWindow => $composableBuilder(
       column: $table.preferredWindow, builder: (column) => column);
+
+  GeneratedColumn<String> get daysFilter => $composableBuilder(
+      column: $table.daysFilter, builder: (column) => column);
 
   GeneratedColumn<bool> get isActive =>
       $composableBuilder(column: $table.isActive, builder: (column) => column);
@@ -4668,6 +4760,7 @@ class $$HabitsTableTableManager extends RootTableManager<
             Value<int> minSessionMinutes = const Value.absent(),
             Value<int> maxSessionMinutes = const Value.absent(),
             Value<String> preferredWindow = const Value.absent(),
+            Value<String> daysFilter = const Value.absent(),
             Value<bool> isActive = const Value.absent(),
             Value<bool> isDeleted = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
@@ -4682,6 +4775,7 @@ class $$HabitsTableTableManager extends RootTableManager<
             minSessionMinutes: minSessionMinutes,
             maxSessionMinutes: maxSessionMinutes,
             preferredWindow: preferredWindow,
+            daysFilter: daysFilter,
             isActive: isActive,
             isDeleted: isDeleted,
             createdAt: createdAt,
@@ -4696,6 +4790,7 @@ class $$HabitsTableTableManager extends RootTableManager<
             Value<int> minSessionMinutes = const Value.absent(),
             Value<int> maxSessionMinutes = const Value.absent(),
             Value<String> preferredWindow = const Value.absent(),
+            Value<String> daysFilter = const Value.absent(),
             Value<bool> isActive = const Value.absent(),
             Value<bool> isDeleted = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
@@ -4710,6 +4805,7 @@ class $$HabitsTableTableManager extends RootTableManager<
             minSessionMinutes: minSessionMinutes,
             maxSessionMinutes: maxSessionMinutes,
             preferredWindow: preferredWindow,
+            daysFilter: daysFilter,
             isActive: isActive,
             isDeleted: isDeleted,
             createdAt: createdAt,
@@ -5045,6 +5141,7 @@ typedef $$HabitLogsTableProcessedTableManager = ProcessedTableManager<
 typedef $$HolidaysTableCreateCompanionBuilder = HolidaysCompanion Function({
   Value<int> id,
   required String name,
+  Value<String> groupName,
   required DateTime date,
   Value<DateTime?> endDate,
   Value<bool> isEnabled,
@@ -5052,6 +5149,7 @@ typedef $$HolidaysTableCreateCompanionBuilder = HolidaysCompanion Function({
 typedef $$HolidaysTableUpdateCompanionBuilder = HolidaysCompanion Function({
   Value<int> id,
   Value<String> name,
+  Value<String> groupName,
   Value<DateTime> date,
   Value<DateTime?> endDate,
   Value<bool> isEnabled,
@@ -5071,6 +5169,9 @@ class $$HolidaysTableFilterComposer
 
   ColumnFilters<String> get name => $composableBuilder(
       column: $table.name, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get groupName => $composableBuilder(
+      column: $table.groupName, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get date => $composableBuilder(
       column: $table.date, builder: (column) => ColumnFilters(column));
@@ -5097,6 +5198,9 @@ class $$HolidaysTableOrderingComposer
   ColumnOrderings<String> get name => $composableBuilder(
       column: $table.name, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get groupName => $composableBuilder(
+      column: $table.groupName, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<DateTime> get date => $composableBuilder(
       column: $table.date, builder: (column) => ColumnOrderings(column));
 
@@ -5121,6 +5225,9 @@ class $$HolidaysTableAnnotationComposer
 
   GeneratedColumn<String> get name =>
       $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get groupName =>
+      $composableBuilder(column: $table.groupName, builder: (column) => column);
 
   GeneratedColumn<DateTime> get date =>
       $composableBuilder(column: $table.date, builder: (column) => column);
@@ -5157,6 +5264,7 @@ class $$HolidaysTableTableManager extends RootTableManager<
           updateCompanionCallback: ({
             Value<int> id = const Value.absent(),
             Value<String> name = const Value.absent(),
+            Value<String> groupName = const Value.absent(),
             Value<DateTime> date = const Value.absent(),
             Value<DateTime?> endDate = const Value.absent(),
             Value<bool> isEnabled = const Value.absent(),
@@ -5164,6 +5272,7 @@ class $$HolidaysTableTableManager extends RootTableManager<
               HolidaysCompanion(
             id: id,
             name: name,
+            groupName: groupName,
             date: date,
             endDate: endDate,
             isEnabled: isEnabled,
@@ -5171,6 +5280,7 @@ class $$HolidaysTableTableManager extends RootTableManager<
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
             required String name,
+            Value<String> groupName = const Value.absent(),
             required DateTime date,
             Value<DateTime?> endDate = const Value.absent(),
             Value<bool> isEnabled = const Value.absent(),
@@ -5178,6 +5288,7 @@ class $$HolidaysTableTableManager extends RootTableManager<
               HolidaysCompanion.insert(
             id: id,
             name: name,
+            groupName: groupName,
             date: date,
             endDate: endDate,
             isEnabled: isEnabled,

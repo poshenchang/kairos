@@ -4,20 +4,23 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import 'package:kairos/core/scheduler/scheduler_provider.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
+import 'package:kairos/services/habit_suggestion_service.dart';
+import 'package:kairos/services/notification_service.dart';
+import 'package:kairos/services/settings_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/widgets/add_event_dialog.dart';
 import 'package:kairos/ui/widgets/add_task_dialog.dart';
+import 'package:kairos/ui/widgets/edit_event_dialog.dart';
+import 'package:kairos/ui/widgets/edit_task_dialog.dart';
+import 'package:kairos/ui/widgets/edit_habit_dialog.dart';
 import 'package:kairos/ui/widgets/category_badge.dart';
 import 'package:kairos/ui/widgets/focus_timer_dialog.dart';
-import 'package:kairos/ui/widgets/help_guide_dialog.dart';
 import 'package:kairos/ui/widgets/log_habit_dialog.dart';
-import 'package:go_router/go_router.dart';
 import 'package:kairos/ui/widgets/app_global_actions.dart';
-import 'package:kairos/ui/theme/theme_provider.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -30,7 +33,7 @@ class DashboardScreen extends ConsumerWidget {
     final dashboardTasksAsync = ref.watch(dashboardTasksProvider);
     final activeHabitsAsync = ref.watch(activeHabitsProvider);
     final habitCountsAsync = ref.watch(weeklyHabitCompletionsProvider);
-    final schedulerState = ref.watch(schedulerNotifierProvider);
+    final categories = ref.watch(allCategoriesProvider).value ?? [];
 
     return Scaffold(
       appBar: AppBar(
@@ -53,11 +56,20 @@ class DashboardScreen extends ConsumerWidget {
       ),
       body: RefreshIndicator(
         onRefresh: () async {
+          final db = ref.read(appDatabaseProvider);
+          final settings = ref.read(settingsNotifierProvider);
+          final notificationService = ref.read(notificationServiceProvider);
+          await HabitSuggestionService.instance.runPeriodicChecks(
+            db: db,
+            settings: settings,
+            notificationService: notificationService,
+          );
           ref.invalidate(todayEventsProvider);
           ref.invalidate(dashboardTasksProvider);
           ref.invalidate(activeHabitsProvider);
           ref.invalidate(weeklyHabitCompletionsProvider);
         },
+
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
@@ -75,7 +87,7 @@ class DashboardScreen extends ConsumerWidget {
               const SizedBox(height: 24),
 
               // 3. TODAY'S SCHEDULE (Events, Prep blocks, Commutes)
-              _buildTodayTimeline(context, ref, todayEventsAsync),
+              _buildTodayTimeline(context, ref, todayEventsAsync, categories),
 
               const SizedBox(height: 24),
 
@@ -107,7 +119,7 @@ class DashboardScreen extends ConsumerWidget {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF2563EB).withOpacity(0.3),
+            color: const Color(0xFF2563EB).withValues(alpha: 0.3),
             blurRadius: 16,
             offset: const Offset(0, 8),
           ),
@@ -151,7 +163,10 @@ class DashboardScreen extends ConsumerWidget {
           Row(
             children: [
               ElevatedButton.icon(
-                icon: const Icon(Icons.play_arrow, size: 18),
+                icon: Icon(
+                  suggestion.hasFreeTime ? Icons.play_arrow : Icons.calendar_today,
+                  size: 18,
+                ),
                 label: Text(suggestion.actionLabel),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
@@ -160,24 +175,28 @@ class DashboardScreen extends ConsumerWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 ),
                 onPressed: () {
-                  FocusTimerDialog.show(
-                    context,
-                    title: suggestion.title,
-                    category: suggestion.category,
-                    defaultMinutes: 25,
-                  );
+                  if (suggestion.hasFreeTime) {
+                    FocusTimerDialog.show(
+                      context,
+                      title: suggestion.title,
+                      category: suggestion.category,
+                      defaultMinutes: 25,
+                    );
+                  } else {
+                    context.go('/calendar');
+                  }
                 },
               ),
               const SizedBox(width: 12),
               OutlinedButton.icon(
-                icon: const Icon(Icons.sync, color: Colors.white, size: 16),
-                label: const Text('Reschedule', style: TextStyle(color: Colors.white)),
+                icon: const Icon(Icons.calendar_month, color: Colors.white, size: 16),
+                label: const Text('View Calendar', style: TextStyle(color: Colors.white)),
                 style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: Colors.white54),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 ),
-                onPressed: () => ref.read(schedulerNotifierProvider.notifier).run(),
+                onPressed: () => context.go('/calendar'),
               ),
             ],
           ),
@@ -257,7 +276,7 @@ class DashboardScreen extends ConsumerWidget {
                       value: task.isCompleted,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                       onChanged: (val) async {
-                        await ref.read(taskDaoProvider).markCompleted(task.id);
+                        await ref.read(taskRepositoryProvider).completeTask(task.id);
                         ref.invalidate(dashboardTasksProvider);
                         ref.invalidate(incompleteTasksStreamProvider);
                       },
@@ -283,20 +302,31 @@ class DashboardScreen extends ConsumerWidget {
                           ),
                       ],
                     ),
-                    trailing: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: badgeColor.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        statusText,
-                        style: TextStyle(
-                          color: badgeColor,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 11,
+                    onTap: () => EditTaskDialog.show(context, task),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: badgeColor.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            statusText,
+                            style: TextStyle(
+                              color: badgeColor,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 11,
+                            ),
+                          ),
                         ),
-                      ),
+                        IconButton(
+                          icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.blueGrey),
+                          tooltip: 'Edit Task',
+                          onPressed: () => EditTaskDialog.show(context, task),
+                        ),
+                      ],
                     ),
                   ),
                 );
@@ -312,6 +342,7 @@ class DashboardScreen extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
     AsyncValue<List<Event>> eventsAsync,
+    List<Category> categories,
   ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -335,19 +366,19 @@ class DashboardScreen extends ConsumerWidget {
           error: (err, _) => Text('Error loading events: $err'),
           data: (events) {
             if (events.isEmpty) {
-              return Card(
+              return const Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(20.0),
+                  padding: EdgeInsets.all(20.0),
                   child: Center(
                     child: Column(
                       children: [
-                        const Icon(Icons.calendar_month, color: Colors.grey, size: 36),
-                        const SizedBox(height: 8),
-                        const Text(
+                        Icon(Icons.calendar_month, color: Colors.grey, size: 36),
+                        SizedBox(height: 8),
+                        Text(
                           'No scheduled events today.',
                           style: TextStyle(fontWeight: FontWeight.w600),
                         ),
-                        const Text(
+                        Text(
                           'Tap + to add a class, commute, gym, or meeting.',
                           style: TextStyle(fontSize: 13, color: Colors.grey),
                         ),
@@ -358,35 +389,33 @@ class DashboardScreen extends ConsumerWidget {
               );
             }
 
-            return Column(
-              children: events.map((event) {
-                final isCommute = event.eventType == 'commute';
-                final isAutoPrep = event.isAutoScheduled;
+            final sortedEvents = List<Event>.from(events)
+              ..sort((a, b) {
+                // Hard events (!isAutoScheduled) first, soft (isAutoScheduled) later
+                if (!a.isAutoScheduled && b.isAutoScheduled) return -1;
+                if (a.isAutoScheduled && !b.isAutoScheduled) return 1;
+                return a.startTime.compareTo(b.startTime);
+              });
 
-                IconData eventIcon = Icons.event;
-                if (isCommute) eventIcon = Icons.train;
-                else if (event.eventType == 'gym') eventIcon = Icons.fitness_center;
-                else if (event.eventType == 'interview') eventIcon = Icons.work_outline;
-                else if (event.eventType == 'lecture') eventIcon = Icons.school_outlined;
-                else if (isAutoPrep) eventIcon = Icons.auto_awesome;
+            return Column(
+              children: sortedEvents.map((event) {
+                final isCommute = event.eventType == 'commute';
+                final isReminder = event.eventType == 'reminder';
+                final isAutoPrep = event.isAutoScheduled;
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
                     leading: CircleAvatar(
-                      backgroundColor: isAutoPrep
-                          ? Colors.purple.shade50
-                          : isCommute
-                              ? Colors.red.shade50
-                              : Colors.blue.shade50,
-                      child: Icon(
-                        eventIcon,
-                        color: isAutoPrep
-                            ? Colors.purple
-                            : isCommute
-                                ? Colors.red
-                                : Colors.blueAccent,
-                      ),
+                      backgroundColor: isReminder
+                          ? Colors.amber.withValues(alpha: 0.15)
+                          : _getCategoryColor(event.category).withValues(alpha: 0.15),
+                      child: isReminder
+                          ? const Icon(Icons.notifications_active, color: Colors.amber, size: 20)
+                          : Text(
+                              _getCategoryEmoji(event.category, categories),
+                              style: const TextStyle(fontSize: 18),
+                            ),
                     ),
                     title: Row(
                       children: [
@@ -396,7 +425,19 @@ class DashboardScreen extends ConsumerWidget {
                             style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                         ),
-                        if (isAutoPrep)
+                        if (isReminder)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text(
+                              'Reminder',
+                              style: TextStyle(fontSize: 10, color: Colors.amber, fontWeight: FontWeight.bold),
+                            ),
+                          )
+                        else if (isAutoPrep)
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
@@ -404,7 +445,7 @@ class DashboardScreen extends ConsumerWidget {
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: const Text(
-                              'Auto-Prep',
+                              'Scheduled',
                               style: TextStyle(fontSize: 10, color: Colors.purple, fontWeight: FontWeight.bold),
                             ),
                           ),
@@ -417,7 +458,9 @@ class DashboardScreen extends ConsumerWidget {
                         Row(
                           children: [
                             Text(
-                              '${DateFormat('HH:mm').format(event.startTime)} – ${DateFormat('HH:mm').format(event.endTime)}',
+                              isReminder
+                                  ? 'Reminder at ${DateFormat('HH:mm').format(event.startTime)}'
+                                  : '${DateFormat('HH:mm').format(event.startTime)} – ${DateFormat('HH:mm').format(event.endTime)}',
                               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
                             ),
                             const SizedBox(width: 8),
@@ -434,17 +477,27 @@ class DashboardScreen extends ConsumerWidget {
                           ),
                       ],
                     ),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.timer_outlined, size: 20),
-                      tooltip: 'Focus on this event',
-                      onPressed: () {
-                        FocusTimerDialog.show(
-                          context,
-                          title: event.title,
-                          category: event.category,
-                          defaultMinutes: 30,
-                        );
-                      },
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.timer_outlined, size: 20),
+                          tooltip: 'Focus on this event',
+                          onPressed: () {
+                            FocusTimerDialog.show(
+                              context,
+                              title: event.title,
+                              category: event.category,
+                              defaultMinutes: 30,
+                            );
+                          },
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.blueGrey),
+                          tooltip: 'Edit Event',
+                          onPressed: () => EditEventDialog.show(context, event),
+                        ),
+                      ],
                     ),
                   ),
                 );
@@ -526,14 +579,21 @@ class DashboardScreen extends ConsumerWidget {
                               ),
                             ),
                             Text(
-                              '$completed / $target this week',
+                              target == 7
+                                  ? '🔥 Daily • $completed / 7'
+                                  : '$completed / $target this week',
                               style: TextStyle(
                                 fontWeight: FontWeight.w600,
                                 fontSize: 13,
-                                color: completed >= target ? Colors.green : Colors.blueGrey,
+                                color: completed >= target ? Colors.green : (target == 7 ? Colors.purple : Colors.blueGrey),
                               ),
                             ),
                             const SizedBox(width: 8),
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined, color: Colors.blueGrey, size: 20),
+                              tooltip: 'Edit Habit',
+                              onPressed: () => EditHabitDialog.show(context, habit),
+                            ),
                             IconButton(
                               icon: const Icon(Icons.add_circle, color: Colors.green, size: 24),
                               tooltip: 'Log completed session',
@@ -563,6 +623,37 @@ class DashboardScreen extends ConsumerWidget {
         ),
       ],
     );
+  }
+
+
+  String _getCategoryEmoji(String categorySlugOrName, List<Category> categories) {
+    for (final c in categories) {
+      if (c.slug.toLowerCase() == categorySlugOrName.toLowerCase() ||
+          c.name.toLowerCase() == categorySlugOrName.toLowerCase()) {
+        if (c.emoji.isNotEmpty) return c.emoji;
+      }
+    }
+    return switch (categorySlugOrName.toLowerCase()) {
+      'schoolwork' => '🎓',
+      'work' => '💼',
+      'research' => '🔬',
+      'personal' => '🧘',
+      'social' => '🎉',
+      'commute' || 'transportation' => '🚆',
+      _ => '🌐',
+    };
+  }
+
+  Color _getCategoryColor(String category) {
+    return switch (category.toLowerCase()) {
+      'schoolwork' => const Color(0xFF4A90D9),
+      'work' => const Color(0xFFE67E22),
+      'research' => const Color(0xFF8E44AD),
+      'personal' => const Color(0xFF27AE60),
+      'social' => const Color(0xFFEC4899),
+      'commute' || 'transportation' => const Color(0xFFE74C3C),
+      _ => const Color(0xFF3B82F6),
+    };
   }
 }
 

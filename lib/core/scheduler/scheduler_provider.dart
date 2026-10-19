@@ -4,7 +4,6 @@
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:kairos/data/database/app_database.dart';
-import 'package:kairos/core/scheduler/auto_scheduler.dart';
 import 'package:kairos/core/scheduler/scheduler_service.dart';
 import 'package:kairos/core/scheduler/scheduler_types.dart';
 

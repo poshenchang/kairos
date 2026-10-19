@@ -11,52 +11,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:kairos/core/scheduler/scheduler_provider.dart';
 import 'package:kairos/ui/theme/theme_provider.dart';
 import 'package:kairos/ui/widgets/add_event_dialog.dart';
 import 'package:kairos/ui/widgets/add_task_dialog.dart';
 import 'package:kairos/ui/widgets/help_guide_dialog.dart';
 
 class AppGlobalActions extends ConsumerWidget {
-  final bool showScheduler;
   final bool showAddButtons;
 
   const AppGlobalActions({
     super.key,
-    this.showScheduler = true,
     this.showAddButtons = true,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final schedulerState = ref.watch(schedulerNotifierProvider);
     final themeMode = ref.watch(themeModeProvider);
 
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (showScheduler)
-          IconButton(
-            tooltip: 'Run Auto-Scheduler Now',
-            icon: schedulerState.isLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.auto_awesome, color: Colors.blueAccent),
-            onPressed: schedulerState.isLoading
-                ? null
-                : () async {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Auto-scheduler running... optimizing free time!'),
-                        duration: Duration(seconds: 2),
-                      ),
-                    );
-                    await ref.read(schedulerNotifierProvider.notifier).run();
-                  },
-          ),
         IconButton(
           tooltip: 'Toggle Dark / Light Mode',
           icon: Icon(
@@ -84,7 +58,7 @@ class AppGlobalActions extends ConsumerWidget {
           ),
         ],
         IconButton(
-          tooltip: 'Student Guide & Tutorial',
+          tooltip: 'Guide & Tutorial',
           icon: const Icon(Icons.help_outline),
           onPressed: () => HelpGuideDialog.show(context),
         ),

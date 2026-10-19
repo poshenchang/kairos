@@ -32,6 +32,10 @@ class Habits extends Table {
   TextColumn get preferredWindow =>
       text().withDefault(const Constant('any'))();
 
+  /// Days of the week filter: "all" | "weekdays" | "weekends".
+  TextColumn get daysFilter =>
+      text().withDefault(const Constant('all'))();
+
   /// Whether the habit is currently active (visible to scheduler).
   BoolColumn get isActive => boolean().withDefault(const Constant(true))();
 

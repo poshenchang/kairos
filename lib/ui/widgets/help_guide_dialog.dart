@@ -37,7 +37,7 @@ class HelpGuideDialog extends StatelessWidget {
                 Icon(Icons.school, color: theme.colorScheme.primary, size: 28),
                 const SizedBox(width: 12),
                 Text(
-                  'Kairos Student Guide',
+                  'Kairos Guide',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,

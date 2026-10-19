@@ -12,6 +12,7 @@ const _kPaletteIdKey = 'kairos_palette_id';
 const _kNotificationsEnabledKey = 'kairos_notifications_enabled';
 const _kWeekStartsOnSundayKey = 'kairos_week_starts_sunday';
 const _kCalendarViewKey = 'kairos_calendar_view_mode';
+const _kSuggestHabitsInFreeTimeKey = 'kairos_suggest_habits_free_time';
 
 class SettingsState {
   final ThemeMode themeMode;
@@ -19,6 +20,7 @@ class SettingsState {
   final bool notificationsEnabled;
   final bool weekStartsOnSunday;
   final String calendarViewMode; // 'timetable' or 'list'
+  final bool suggestHabitsInFreeTime;
 
   const SettingsState({
     this.themeMode = ThemeMode.system,
@@ -26,6 +28,7 @@ class SettingsState {
     this.notificationsEnabled = true,
     this.weekStartsOnSunday = true,
     this.calendarViewMode = 'timetable', // Timetable is default as requested!
+    this.suggestHabitsInFreeTime = true,
   });
 
   SettingsState copyWith({
@@ -34,6 +37,7 @@ class SettingsState {
     bool? notificationsEnabled,
     bool? weekStartsOnSunday,
     String? calendarViewMode,
+    bool? suggestHabitsInFreeTime,
   }) {
     return SettingsState(
       themeMode: themeMode ?? this.themeMode,
@@ -41,6 +45,7 @@ class SettingsState {
       notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
       weekStartsOnSunday: weekStartsOnSunday ?? this.weekStartsOnSunday,
       calendarViewMode: calendarViewMode ?? this.calendarViewMode,
+      suggestHabitsInFreeTime: suggestHabitsInFreeTime ?? this.suggestHabitsInFreeTime,
     );
   }
 }
@@ -69,6 +74,7 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     final notifs = prefs.getBool(_kNotificationsEnabledKey) ?? true;
     final sunday = prefs.getBool(_kWeekStartsOnSundayKey) ?? true;
     final viewMode = prefs.getString(_kCalendarViewKey) ?? 'timetable';
+    final suggestHabits = prefs.getBool(_kSuggestHabitsInFreeTimeKey) ?? true;
 
     state = SettingsState(
       themeMode: themeMode,
@@ -76,6 +82,7 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
       notificationsEnabled: notifs,
       weekStartsOnSunday: sunday,
       calendarViewMode: viewMode,
+      suggestHabitsInFreeTime: suggestHabits,
     );
   }
 
@@ -95,6 +102,12 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     state = state.copyWith(notificationsEnabled: enabled);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kNotificationsEnabledKey, enabled);
+  }
+
+  Future<void> setSuggestHabitsInFreeTime(bool enabled) async {
+    state = state.copyWith(suggestHabitsInFreeTime: enabled);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kSuggestHabitsInFreeTimeKey, enabled);
   }
 
   Future<void> setWeekStartsOnSunday(bool sunday) async {

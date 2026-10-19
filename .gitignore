@@ -48,3 +48,5 @@ flutter_*.png
 
 # Linux desktop build outputs
 linux/flutter/ephemeral/
+# Widget Preview related
+.widget_preview/

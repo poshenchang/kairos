@@ -13,6 +13,7 @@ import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/widgets/add_task_dialog.dart';
+import 'package:kairos/ui/widgets/edit_task_dialog.dart';
 import 'package:kairos/ui/widgets/app_global_actions.dart';
 import 'package:kairos/ui/widgets/category_badge.dart';
 import 'package:kairos/ui/widgets/focus_timer_dialog.dart';
@@ -214,7 +215,7 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                   onChanged: (val) async {
                     if (val == true) {
-                      await widget.tasksDao.markCompleted(task.id);
+                      await ref.read(taskRepositoryProvider).completeTask(task.id);
                     } else {
                       await widget.tasksDao.updateTask(task.toCompanion(true).copyWith(isCompleted: const Value(false)));
                     }
@@ -289,7 +290,13 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
                   },
                 ),
                 IconButton(
+                  icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.blueGrey),
+                  tooltip: 'Edit Task',
+                  onPressed: () => EditTaskDialog.show(context, task),
+                ),
+                IconButton(
                   icon: const Icon(Icons.delete_outline, size: 18, color: Colors.grey),
+                  tooltip: 'Delete Task',
                   onPressed: () async {
                     await widget.tasksDao.deleteTask(task.id);
                     ref.invalidate(dashboardTasksProvider);

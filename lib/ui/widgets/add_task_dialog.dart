@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
+import 'package:kairos/services/form_defaults_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 
 class AddTaskDialog extends ConsumerStatefulWidget {
@@ -42,7 +43,21 @@ class _AddTaskDialogState extends ConsumerState<AddTaskDialog> {
   String _selectedCategory = 'schoolwork';
   int _priority = 3; // 1=Low, 3=Medium, 5=High
   bool _isRecurring = false;
-  int _estimatedMinutes = 60;
+  String _repeatEndMode = 'indefinite'; // 'indefinite', 'until_date', 'count'
+  DateTime? _repeatUntilDate;
+  int _repeatCount = 10;
+  int _estimatedMinutes = 120; // Default 2 hours suggested session duration
+
+  @override
+  void initState() {
+    super.initState();
+    final defaults = ref.read(formDefaultsServiceProvider);
+    _selectedDate = defaults.lastTaskDueDate ?? DateTime.now().add(const Duration(days: 2));
+    _selectedTime = defaults.lastTaskDueTime ?? const TimeOfDay(hour: 23, minute: 59);
+    _selectedCategory = defaults.lastTaskCategory ?? 'schoolwork';
+    _estimatedMinutes = defaults.lastTaskEstimatedMinutes ?? 120;
+    _repeatUntilDate = _selectedDate.add(const Duration(days: 90));
+  }
 
   @override
   void dispose() {
@@ -63,6 +78,20 @@ class _AddTaskDialogState extends ConsumerState<AddTaskDialog> {
       _selectedTime.minute,
     );
 
+    String? rrule;
+    if (_isRecurring) {
+      final baseRule = 'FREQ=WEEKLY;BYDAY=${_dayToRruleCode(_selectedDate.weekday)}';
+      if (_repeatEndMode == 'until_date' && _repeatUntilDate != null) {
+        final u = _repeatUntilDate!;
+        final uStr = '${u.year}${u.month.toString().padLeft(2, '0')}${u.day.toString().padLeft(2, '0')}T235959Z';
+        rrule = '$baseRule;UNTIL=$uStr';
+      } else if (_repeatEndMode == 'count') {
+        rrule = '$baseRule;COUNT=$_repeatCount';
+      } else {
+        rrule = baseRule;
+      }
+    }
+
     final taskDao = ref.read(taskDaoProvider);
     final taskId = await taskDao.insertTask(
       TasksCompanion.insert(
@@ -74,9 +103,7 @@ class _AddTaskDialogState extends ConsumerState<AddTaskDialog> {
             : const Value(null),
         priority: Value(_priority),
         isRecurring: Value(_isRecurring),
-        rrule: _isRecurring
-            ? Value('FREQ=WEEKLY;BYDAY=${_dayToRruleCode(_selectedDate.weekday)}')
-            : const Value(null),
+        rrule: Value(rrule),
         estimatedMinutes: Value(_estimatedMinutes),
       ),
     );
@@ -91,6 +118,13 @@ class _AddTaskDialogState extends ConsumerState<AddTaskDialog> {
         );
       }
     }
+
+    await ref.read(formDefaultsServiceProvider).saveTaskDefaults(
+      dueDate: _selectedDate,
+      dueTime: _selectedTime,
+      estimatedMinutes: _estimatedMinutes,
+      category: _selectedCategory,
+    );
 
     if (mounted) Navigator.of(context).pop();
   }
@@ -108,6 +142,14 @@ class _AddTaskDialogState extends ConsumerState<AddTaskDialog> {
   String _dayToRruleCode(int weekday) {
     const map = {1: 'MO', 2: 'TU', 3: 'WE', 4: 'TH', 5: 'FR', 6: 'SA', 7: 'SU'};
     return map[weekday] ?? 'MO';
+  }
+
+  String _formatDuration(int minutes) {
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    if (h > 0 && m > 0) return '${h}h ${m}m';
+    if (h > 0) return '${h}h';
+    return '${m}m';
   }
 
   @override
@@ -239,20 +281,86 @@ class _AddTaskDialogState extends ConsumerState<AddTaskDialog> {
                 value: _isRecurring,
                 onChanged: (val) => setState(() => _isRecurring = val),
               ),
+              if (_isRecurring) ...[
+                Padding(
+                  padding: const EdgeInsets.only(left: 8.0, bottom: 12.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Repeat ends:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 6),
+                      SegmentedButton<String>(
+                        segments: const [
+                          ButtonSegment(value: 'indefinite', label: Text('Never')),
+                          ButtonSegment(value: 'until_date', label: Text('Until Date')),
+                          ButtonSegment(value: 'count', label: Text('N Weeks')),
+                        ],
+                        selected: {_repeatEndMode},
+                        onSelectionChanged: (s) => setState(() => _repeatEndMode = s.first),
+                      ),
+                      if (_repeatEndMode == 'until_date') ...[
+                        const SizedBox(height: 6),
+                        ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.event_busy, size: 20),
+                          title: Text(
+                            _repeatUntilDate != null
+                                ? 'Repeats until: ${DateFormat('MMM d, yyyy').format(_repeatUntilDate!)}'
+                                : 'Choose termination date',
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                          trailing: const Icon(Icons.calendar_month, size: 20),
+                          onTap: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: _repeatUntilDate ?? _selectedDate.add(const Duration(days: 90)),
+                              firstDate: _selectedDate,
+                              lastDate: _selectedDate.add(const Duration(days: 730)),
+                            );
+                            if (picked != null) setState(() => _repeatUntilDate = picked);
+                          },
+                        ),
+                      ],
+                      if (_repeatEndMode == 'count') ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            const Text('Repeat for:', style: TextStyle(fontSize: 13)),
+                            const SizedBox(width: 12),
+                            DropdownButton<int>(
+                              value: [2, 3, 4, 5, 6, 8, 10, 12, 14, 16, 20, 26, 52].contains(_repeatCount) ? _repeatCount : 10,
+                              items: [2, 3, 4, 5, 6, 8, 10, 12, 14, 16, 20, 26, 52].map((cnt) {
+                                return DropdownMenuItem(value: cnt, child: Text('$cnt weeks'));
+                              }).toList(),
+                              onChanged: (v) {
+                                if (v != null) setState(() => _repeatCount = v);
+                              },
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 8),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Estimated work time:'),
-                  Text('$_estimatedMinutes min', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const Text('Suggested session duration / time spent:'),
+                  Text(
+                    _formatDuration(_estimatedMinutes),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 ],
               ),
               Slider(
                 value: _estimatedMinutes.toDouble(),
                 min: 15,
-                max: 300,
-                divisions: 19,
-                label: '$_estimatedMinutes min',
+                max: 360,
+                divisions: 23,
+                label: _formatDuration(_estimatedMinutes),
                 onChanged: (val) => setState(() => _estimatedMinutes = val.toInt()),
               ),
               const SizedBox(height: 8),

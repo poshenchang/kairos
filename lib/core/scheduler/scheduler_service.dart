@@ -14,12 +14,12 @@ import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/core/scheduler/auto_scheduler.dart';
 import 'package:kairos/core/scheduler/scheduler_types.dart';
 
-/// Default do-not-schedule window: every night 22:00 – 08:00.
+/// Default do-not-schedule window: 21:00 – 09:00 (9pm to 9am).
 const _defaultDoNotSchedule = [
   TimeWindow(
-    start: TimeOfDay(hour: 22, minute: 0),
-    end:   TimeOfDay(hour: 8,  minute: 0),
-    label: 'Sleep',
+    start: TimeOfDay(hour: 21, minute: 0),
+    end:   TimeOfDay(hour: 9,  minute: 0),
+    label: 'Off-hours',
   ),
 ];
 

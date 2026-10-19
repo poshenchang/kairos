@@ -118,4 +118,9 @@ class TaskDao extends DatabaseAccessor<AppDatabase> with _$TaskDaoMixin {
 
   Future<int> deleteSubtask(int subtaskId) =>
       (delete(subtasks)..where((s) => s.id.equals(subtaskId))).go();
+
+  Future<int> resetSubtasksForTask(int taskId) =>
+      (update(subtasks)..where((s) => s.taskId.equals(taskId))).write(
+        const SubtasksCompanion(isCompleted: Value(false)),
+      );
 }

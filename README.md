@@ -44,7 +44,7 @@ Kairos is a time management app designed for students to eliminate idle hesitati
 
 ## 🚀 How to Run (on Linux Desktop)
 
-In your terminal inside `~/Documents/dev/smart-calender`:
+In your terminal inside `~/Documents/dev/kairos`:
 
 ### 1. Generate Drift database code:
 ```bash

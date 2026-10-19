@@ -12,7 +12,6 @@
 import 'package:drift/drift.dart' show Value;
 
 import 'package:kairos/data/database/app_database.dart';
-import 'package:kairos/data/database/daos/task_dao.dart';
 
 /// Wraps [TaskDao] and adds higher-level task operations, including
 /// recurring-task next-occurrence computation and dashboard aggregation.
@@ -40,19 +39,41 @@ class TaskRepository {
     if (rule == null || rule.isEmpty) return null;
 
     final params = _parseRule(rule);
-    if (params['FREQ'] != 'WEEKLY') return null;
+    final freq = params['FREQ'];
+    if (freq != 'WEEKLY' && freq != 'DAILY') return null;
 
-    final byDay = params['BYDAY'];
-    if (byDay == null || byDay.isEmpty) return null;
-
-    final targetWeekdays = _parseByday(byDay);
-    if (targetWeekdays.isEmpty) return null;
+    final untilDate = params['UNTIL'] != null ? _parseUntil(params['UNTIL']!) : null;
+    final maxCount = params['COUNT'] != null ? int.tryParse(params['COUNT']!) : null;
+    if (maxCount != null && maxCount <= 0) return null;
 
     final reference = (now ?? DateTime.now());
     final baseDue = task.dueDate;
 
+    if (freq == 'DAILY') {
+      final candidate = reference.add(const Duration(days: 1));
+      final nextDueDate = DateTime(
+        candidate.year,
+        candidate.month,
+        candidate.day,
+        baseDue.hour,
+        baseDue.minute,
+        baseDue.second,
+      );
+      if (untilDate != null && nextDueDate.isAfter(untilDate)) return null;
+      return task.copyWith(
+        dueDate: nextDueDate,
+        isCompleted: false,
+        completedAt: const Value(null),
+      );
+    }
+
+    final byDay = params['BYDAY'];
+    final targetWeekdays = byDay != null ? _parseByday(byDay) : <int>{};
+    if (targetWeekdays.isEmpty) {
+      targetWeekdays.add(baseDue.weekday);
+    }
+
     // Walk forward day-by-day from tomorrow to find the next matching weekday.
-    // Limit the search to 365 days to avoid an infinite loop.
     for (var i = 1; i <= 365; i++) {
       final candidate = reference.add(Duration(days: i));
       if (targetWeekdays.contains(candidate.weekday)) {
@@ -65,7 +86,10 @@ class TaskRepository {
           baseDue.second,
         );
 
-        // Return a transient copy — NOT persisted to the DB.
+        if (untilDate != null && nextDueDate.isAfter(untilDate)) {
+          return null; // Past UNTIL date
+        }
+
         return task.copyWith(
           dueDate: nextDueDate,
           isCompleted: false,
@@ -74,30 +98,68 @@ class TaskRepository {
       }
     }
 
-    return null; // No occurrence found within 1 year.
+    return null;
   }
 
-  /// Returns tasks for the dashboard:
-  ///   - One-off incomplete tasks are returned as-is.
-  ///   - Recurring tasks are collapsed to show only the **next** occurrence
-  ///     after [now] (one entry per recurring task).
-  ///   - Result is sorted by [dueDate] ascending.
+  /// Returns tasks for the dashboard sorted by [dueDate] ascending.
+  /// Incomplete tasks already reflect the current active occurrence for both
+  /// one-off tasks and recurring tasks.
   Future<List<Task>> getDashboardTasks({DateTime? now}) async {
     final incompleteTasks = await _dao.getIncompleteTasks();
-    final reference = now ?? DateTime.now();
+    final result = List<Task>.from(incompleteTasks);
+    result.sort((a, b) => a.dueDate.compareTo(b.dueDate));
+    return result;
+  }
 
-    final result = <Task>[];
-    for (final task in incompleteTasks) {
-      if (task.isRecurring) {
-        final next = getNextInstanceOfRecurringTask(task, now: reference);
-        if (next != null) result.add(next);
-      } else {
-        result.add(task);
+
+  /// Completes a task:
+  /// - For one-off tasks: marks completed in database.
+  /// - For recurring tasks: advances [dueDate] to the next occurrence, resets
+  ///   subtasks to incomplete, and decrements COUNT if present.
+  ///   If the recurrence has finished (past UNTIL date or COUNT reached 1),
+  ///   marks the task completed permanently.
+  Future<bool> completeTask(int id) async {
+    final task = await _dao.getTaskById(id);
+    if (task == null) return false;
+
+    if (task.isRecurring && task.rrule != null && task.rrule!.isNotEmpty) {
+      final reference = task.dueDate.isAfter(DateTime.now())
+          ? task.dueDate
+          : DateTime.now();
+      final next = getNextInstanceOfRecurringTask(task, now: reference);
+      if (next != null) {
+        final params = _parseRule(task.rrule!);
+        String? newRrule = task.rrule;
+        if (params.containsKey('COUNT')) {
+          final count = int.tryParse(params['COUNT'] ?? '');
+          if (count != null) {
+            if (count <= 1) {
+              // Last occurrence completed! Mark completed for good
+              final rows = await _dao.markCompleted(id);
+              return rows > 0;
+            } else {
+              newRrule = task.rrule!.replaceAll('COUNT=$count', 'COUNT=${count - 1}');
+            }
+          }
+        }
+
+        // Advance to next occurrence
+        await _dao.updateTask(task.toCompanion(true).copyWith(
+          dueDate: Value(next.dueDate),
+          isCompleted: const Value(false),
+          completedAt: const Value(null),
+          rrule: Value(newRrule),
+          updatedAt: Value(DateTime.now().toUtc()),
+        ));
+
+        // Reset subtasks for the new occurrence
+        await _dao.resetSubtasksForTask(id);
+        return true;
       }
     }
 
-    result.sort((a, b) => a.dueDate.compareTo(b.dueDate));
-    return result;
+    final rows = await _dao.markCompleted(id);
+    return rows > 0;
   }
 
   // ── TaskDao delegation ────────────────────────────────────────────────────
@@ -118,9 +180,20 @@ class TaskRepository {
 
   Future<int> deleteTask(int id) => _dao.deleteTask(id);
 
-  Future<bool> completeTask(int id) => _dao.completeTask(id);
-
   // ── Private helpers ───────────────────────────────────────────────────────
+
+  DateTime? _parseUntil(String untilStr) {
+    try {
+      final clean = untilStr.replaceAll('-', '').replaceAll(':', '');
+      if (clean.length >= 8) {
+        final y = int.parse(clean.substring(0, 4));
+        final m = int.parse(clean.substring(4, 6));
+        final d = int.parse(clean.substring(6, 8));
+        return DateTime(y, m, d, 23, 59, 59);
+      }
+    } catch (_) {}
+    return null;
+  }
 
   /// Parses `FREQ=WEEKLY;BYDAY=MO,FR` into `{'FREQ':'WEEKLY','BYDAY':'MO,FR'}`.
   Map<String, String> _parseRule(String rule) => {

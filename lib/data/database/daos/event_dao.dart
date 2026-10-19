@@ -85,6 +85,13 @@ class EventDao extends DatabaseAccessor<AppDatabase> with _$EventDaoMixin {
         .watch();
   }
 
+  /// Watch all non-deleted events, ordered by start time.
+  Stream<List<Event>> watchAllEvents() =>
+      (select(events)
+            ..where((e) => e.isDeleted.equals(false))
+            ..orderBy([(e) => OrderingTerm.asc(e.startTime)]))
+          .watch();
+
   // ── Mutations ─────────────────────────────────────────────────────────────
 
   /// Insert a single event and return its new id.

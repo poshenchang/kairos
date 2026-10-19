@@ -12,13 +12,50 @@ part 'category_dao.g.dart';
 class CategoryDao extends DatabaseAccessor<AppDatabase> with _$CategoryDaoMixin {
   CategoryDao(super.db);
 
+  /// Canonical category ordering: schoolwork -> work -> research -> personal -> social -> commute -> custom -> other (last).
+  static List<Category> sortCategories(List<Category> list) {
+    final sorted = List<Category>.from(list);
+    const preferredOrder = [
+      'schoolwork',
+      'work',
+      'research',
+      'personal',
+      'social',
+      'transportation',
+      'commute',
+    ];
+
+    sorted.sort((a, b) {
+      final slugA = a.slug.toLowerCase();
+      final slugB = b.slug.toLowerCase();
+
+      // 'other' always comes last
+      if (slugA == 'other' && slugB != 'other') return 1;
+      if (slugB == 'other' && slugA != 'other') return -1;
+
+      final idxA = preferredOrder.indexOf(slugA);
+      final idxB = preferredOrder.indexOf(slugB);
+
+      if (idxA != -1 && idxB != -1) return idxA.compareTo(idxB);
+      if (idxA != -1) return -1;
+      if (idxB != -1) return 1;
+
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+    return sorted;
+  }
+
   /// Emits the full list of categories whenever the table changes.
   Stream<List<Category>> watchAllCategories() =>
-      (select(categories)..orderBy([(c) => OrderingTerm.asc(c.id)])).watch();
+      (select(categories)..orderBy([(c) => OrderingTerm.asc(c.id)]))
+          .watch()
+          .map(sortCategories);
 
   /// One-shot fetch of every category.
-  Future<List<Category>> getAllCategories() =>
-      (select(categories)..orderBy([(c) => OrderingTerm.asc(c.id)])).get();
+  Future<List<Category>> getAllCategories() async {
+    final list = await (select(categories)..orderBy([(c) => OrderingTerm.asc(c.id)])).get();
+    return sortCategories(list);
+  }
 
   /// Returns the category with [id], or `null` if it does not exist.
   Future<Category?> getCategoryById(int id) =>

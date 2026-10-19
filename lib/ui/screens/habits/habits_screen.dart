@@ -5,13 +5,15 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
+import 'package:kairos/services/habit_schedule_service.dart';
 import 'package:kairos/ui/widgets/add_habit_dialog.dart';
+import 'package:kairos/ui/widgets/edit_habit_dialog.dart';
 import 'package:kairos/ui/widgets/app_global_actions.dart';
 import 'package:kairos/ui/widgets/category_badge.dart';
 import 'package:kairos/ui/widgets/focus_timer_dialog.dart';
+import 'package:kairos/ui/widgets/habit_schedule_dialog.dart';
 import 'package:kairos/ui/widgets/log_habit_dialog.dart';
 
 class HabitsScreen extends ConsumerWidget {
@@ -51,7 +53,7 @@ class HabitsScreen extends ConsumerWidget {
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 32.0),
                     child: Text(
-                      'Perfect for activities like personal research, practicing an instrument, or reading — where you want regular cadence without rigid deadlines.',
+                      'Perfect for daily routines like language learning and podcasts, or regular cadence activities like research and music practice.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey, fontSize: 13),
                     ),
@@ -98,20 +100,40 @@ class HabitsScreen extends ConsumerWidget {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
-                              color: isDoneForWeek ? Colors.green.shade50 : Colors.blue.shade50,
+                              color: isDoneForWeek
+                                  ? Colors.green.shade50
+                                  : (target == 7 ? Colors.purple.shade50 : Colors.blue.shade50),
                               borderRadius: BorderRadius.circular(20),
+                              border: target == 7
+                                  ? Border.all(color: Colors.purple.shade200, width: 1)
+                                  : null,
                             ),
                             child: Text(
-                              '$completed / $target this week',
+                              target == 7
+                                  ? '🔥 Daily • $completed / 7 this week'
+                                  : '$completed / $target this week',
                               style: TextStyle(
-                                color: isDoneForWeek ? Colors.green.shade800 : Colors.blueAccent,
+                                color: isDoneForWeek
+                                    ? Colors.green.shade800
+                                    : (target == 7 ? Colors.purple.shade800 : Colors.blueAccent),
                                 fontWeight: FontWeight.bold,
                                 fontSize: 12,
                               ),
                             ),
                           ),
                           IconButton(
+                            icon: const Icon(Icons.settings_suggest_outlined, size: 20, color: Colors.purpleAccent),
+                            tooltip: 'Default Weekly Schedule',
+                            onPressed: () => HabitScheduleDialog.show(context, habit),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined, size: 20, color: Colors.blueGrey),
+                            tooltip: 'Edit Habit',
+                            onPressed: () => EditHabitDialog.show(context, habit),
+                          ),
+                          IconButton(
                             icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
+                            tooltip: 'Delete Habit',
                             onPressed: () async {
                               await habitDao.deleteHabit(habit.id);
                               ref.invalidate(activeHabitsProvider);
@@ -151,8 +173,33 @@ class HabitsScreen extends ConsumerWidget {
                           const Icon(Icons.access_time, size: 14, color: Colors.grey),
                           const SizedBox(width: 4),
                           Text(
-                            '${habit.minSessionMinutes}–${habit.maxSessionMinutes} min (${habit.preferredWindow})',
+                            '${habit.minSessionMinutes}–${habit.maxSessionMinutes} min (${habit.preferredWindow})${habit.daysFilter == 'weekdays' ? ' • 📅 Weekdays only' : (habit.daysFilter == 'weekends' ? ' • 🏖️ Weekends only' : '')}',
                             style: const TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                          Consumer(
+                            builder: (context, ref, _) {
+                              final defaultSlots = ref.watch(habitScheduleProvider)[habit.id] ?? [];
+                              if (defaultSlots.isEmpty) return const SizedBox.shrink();
+                              return Padding(
+                                padding: const EdgeInsets.only(left: 6.0),
+                                child: InkWell(
+                                  onTap: () => HabitScheduleDialog.show(context, habit),
+                                  borderRadius: BorderRadius.circular(6),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                    decoration: BoxDecoration(
+                                      color: Colors.purple.withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: Colors.purple.withValues(alpha: 0.3)),
+                                    ),
+                                    child: Text(
+                                      '🗓️ ${defaultSlots.length} default slots',
+                                      style: const TextStyle(fontSize: 10.5, color: Colors.purple, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
                           ),
                           const Spacer(),
                           OutlinedButton.icon(

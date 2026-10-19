@@ -57,6 +57,7 @@ Habit _habit({
   int minSessionMinutes = 30,
   int maxSessionMinutes = 60,
   String preferredWindow = 'any',
+  String daysFilter = 'all',
 }) =>
     Habit(
       id: id,
@@ -67,6 +68,7 @@ Habit _habit({
       minSessionMinutes: minSessionMinutes,
       maxSessionMinutes: maxSessionMinutes,
       preferredWindow: preferredWindow,
+      daysFilter: daysFilter,
       isActive: true,
       isDeleted: false,
       createdAt: DateTime.utc(2024, 1, 1),
@@ -469,6 +471,220 @@ void main() {
       for (final e in result.events) {
         expect(e.isAutoScheduled.value, isTrue);
       }
+    });
+
+    group('habit daysFilter', () {
+      test('schedules weekdays-only habit exclusively on Mon-Fri', () async {
+        final winStart = _mon(8);
+        final winEnd = DateTime.utc(2024, 1, 21, 22, 0);
+        final habit = _habit(
+          id: 1,
+          title: 'Code Study',
+          targetFrequencyPerWeek: 3,
+          daysFilter: 'weekdays',
+        );
+
+        final result = await scheduler.generateSchedule(
+          fixedEvents: [],
+          incompleteTasks: [],
+          activeHabits: [habit],
+          weeklyHabitCompletions: {},
+          schedulingWindowStart: winStart,
+          schedulingWindowEnd: winEnd,
+          doNotScheduleWindows: [],
+          prepTypeDefaults: {},
+        );
+
+        final habitEvents = result.events
+            .where((e) => e.autoScheduleSource.value == 'habit:1')
+            .toList();
+
+        expect(habitEvents, isNotEmpty);
+        for (final e in habitEvents) {
+          final weekday = e.startTime.value.toLocal().weekday;
+          expect(weekday, inInclusiveRange(DateTime.monday, DateTime.friday));
+        }
+      });
+
+      test('schedules weekends-only habit exclusively on Sat-Sun', () async {
+        final winStart = _mon(8);
+        final winEnd = DateTime.utc(2024, 1, 21, 22, 0);
+        final habit = _habit(
+          id: 2,
+          title: 'Weekend Hike',
+          targetFrequencyPerWeek: 2,
+          daysFilter: 'weekends',
+        );
+
+        final result = await scheduler.generateSchedule(
+          fixedEvents: [],
+          incompleteTasks: [],
+          activeHabits: [habit],
+          weeklyHabitCompletions: {},
+          schedulingWindowStart: winStart,
+          schedulingWindowEnd: winEnd,
+          doNotScheduleWindows: [TimeWindow.overnight],
+          prepTypeDefaults: {},
+        );
+
+        final habitEvents = result.events
+            .where((e) => e.autoScheduleSource.value == 'habit:2')
+            .toList();
+
+        expect(habitEvents, isNotEmpty);
+        for (final e in habitEvents) {
+          final weekday = e.startTime.value.toLocal().weekday;
+          expect(weekday, inInclusiveRange(DateTime.saturday, DateTime.sunday));
+        }
+      });
+    });
+
+    group('time constraints & even habit distribution', () {
+      test('strictly schedules starting at integer o\'clock (:00) or half past (:30)', () async {
+        final winStart = DateTime.utc(2024, 1, 8, 9, 13);
+        final winEnd = DateTime.utc(2024, 1, 8, 17, 47);
+        final event = _event(
+          id: 1,
+          start: DateTime.utc(2024, 1, 8, 14, 25),
+          end: DateTime.utc(2024, 1, 8, 15, 45),
+          requiresPrep: true,
+          prepMinutes: 60,
+        );
+        final habit = _habit(
+          id: 1,
+          title: 'Daily Reading',
+          targetFrequencyPerWeek: 1,
+          minSessionMinutes: 30,
+          maxSessionMinutes: 60,
+        );
+
+        final result = await scheduler.generateSchedule(
+          fixedEvents: [event],
+          incompleteTasks: [],
+          activeHabits: [habit],
+          weeklyHabitCompletions: {},
+          schedulingWindowStart: winStart,
+          schedulingWindowEnd: winEnd,
+          doNotScheduleWindows: [],
+          prepTypeDefaults: {},
+        );
+
+        expect(result.events, isNotEmpty);
+        for (final e in result.events) {
+          final start = e.startTime.value!;
+          expect(start.minute == 0 || start.minute == 30, isTrue,
+              reason: 'Event ${e.title.value} starts at ${start.hour}:${start.minute}, which is not :00 or :30');
+          expect(start.second, 0);
+          expect(start.millisecond, 0);
+        }
+      });
+
+      test('prefers 9am to 9pm (09:00 - 21:00) when scheduling', () async {
+        final winStart = DateTime.utc(2024, 1, 8, 6, 0);
+        final winEnd = DateTime.utc(2024, 1, 8, 23, 0);
+        final habit = _habit(
+          id: 1,
+          title: 'Morning Yoga',
+          targetFrequencyPerWeek: 1,
+          minSessionMinutes: 30,
+          maxSessionMinutes: 60,
+          preferredWindow: 'any',
+        );
+
+        final result = await scheduler.generateSchedule(
+          fixedEvents: [],
+          incompleteTasks: [],
+          activeHabits: [habit],
+          weeklyHabitCompletions: {},
+          schedulingWindowStart: winStart,
+          schedulingWindowEnd: winEnd,
+          doNotScheduleWindows: [],
+          prepTypeDefaults: {},
+        );
+
+        expect(result.events, isNotEmpty);
+        for (final e in result.events) {
+          final start = e.startTime.value!;
+          final end = e.endTime.value!;
+          expect(start.hour >= 9, isTrue, reason: 'Event scheduled before 9am: $start');
+          expect(end.hour < 21 || (end.hour == 21 && end.minute == 0), isTrue,
+              reason: 'Event scheduled after 9pm: $end');
+        }
+      });
+
+      test('schedules with at least 30-minute buffer apart from fixed events when possible', () async {
+        final winStart = _mon(9);
+        final winEnd = _mon(18);
+        final fixed = _event(
+          id: 10,
+          start: _mon(11),
+          end: _mon(12),
+        );
+        final habit = _habit(
+          id: 1,
+          title: 'Deep Work',
+          targetFrequencyPerWeek: 1,
+          minSessionMinutes: 30,
+          maxSessionMinutes: 60,
+          preferredWindow: 'any',
+        );
+
+        final result = await scheduler.generateSchedule(
+          fixedEvents: [fixed],
+          incompleteTasks: [],
+          activeHabits: [habit],
+          weeklyHabitCompletions: {},
+          schedulingWindowStart: winStart,
+          schedulingWindowEnd: winEnd,
+          doNotScheduleWindows: [],
+          prepTypeDefaults: {},
+        );
+
+        final habitEvent = result.events.firstWhere((e) => e.autoScheduleSource.value == 'habit:1');
+        final hStart = habitEvent.startTime.value!;
+        final hEnd = habitEvent.endTime.value!;
+
+        if (!hEnd.isAfter(fixed.startTime)) {
+          expect(fixed.startTime.difference(hEnd).inMinutes >= 30, isTrue);
+        } else if (!hStart.isBefore(fixed.endTime)) {
+          expect(hStart.difference(fixed.endTime).inMinutes >= 30, isTrue);
+        }
+      });
+
+      test('distributes habit sessions evenly across the week and avoids heavy hard-event days', () async {
+        final winStart = DateTime.utc(2024, 1, 8, 9, 0);
+        final winEnd = DateTime.utc(2024, 1, 14, 21, 0);
+
+        final monHard = _event(id: 101, start: DateTime.utc(2024, 1, 8, 10, 0), end: DateTime.utc(2024, 1, 8, 16, 0));
+        final wedHard = _event(id: 102, start: DateTime.utc(2024, 1, 10, 10, 0), end: DateTime.utc(2024, 1, 10, 16, 0));
+
+        final habit = _habit(
+          id: 1,
+          title: 'Guitar Practice',
+          targetFrequencyPerWeek: 2,
+          minSessionMinutes: 30,
+          maxSessionMinutes: 60,
+        );
+
+        final result = await scheduler.generateSchedule(
+          fixedEvents: [monHard, wedHard],
+          incompleteTasks: [],
+          activeHabits: [habit],
+          weeklyHabitCompletions: {},
+          schedulingWindowStart: winStart,
+          schedulingWindowEnd: winEnd,
+          doNotScheduleWindows: [TimeWindow.overnight],
+          prepTypeDefaults: {},
+        );
+
+        final habitEvents = result.events.where((e) => e.autoScheduleSource.value == 'habit:1').toList();
+        expect(habitEvents.length, 2);
+
+        final scheduledDays = habitEvents.map((e) => e.startTime.value!.day).toList();
+        expect(scheduledDays.contains(8), isFalse, reason: 'Avoided heavy Monday');
+        expect(scheduledDays.contains(10), isFalse, reason: 'Avoided heavy Wednesday');
+        expect(scheduledDays[0] != scheduledDays[1], isTrue, reason: 'Sessions are on different days');
+      });
     });
   });
 }
