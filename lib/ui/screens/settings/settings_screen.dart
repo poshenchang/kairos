@@ -10,6 +10,7 @@
 // - Student Guide & Help
 
 import 'package:drift/drift.dart' show Value;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,6 +18,7 @@ import 'package:intl/intl.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/notification_service.dart';
+import 'package:kairos/services/platform_notification/notification_bridge.dart';
 import 'package:kairos/services/settings_service.dart';
 import 'package:kairos/services/supabase_sync_service.dart';
 import 'package:kairos/services/timezone_service.dart';
@@ -881,15 +883,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 color: h.isEnabled ? Colors.orangeAccent : Colors.grey,
                                 size: 18,
                               ),
-                              title: Text(h.name, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
-                              subtitle: Text(dateRange, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                              title: Text(h.name, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13), softWrap: true),
+                              subtitle: Text(dateRange, style: const TextStyle(fontSize: 11, color: Colors.grey), softWrap: true),
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Transform.scale(
-                                    scale: 0.85,
+                                    scale: 0.8,
                                     child: Switch(
                                       value: h.isEnabled,
+                                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                       onChanged: (val) async {
                                         await holidayDao.toggleHoliday(h.id, val);
                                         if (val) {
@@ -902,27 +905,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                       },
                                     ),
                                   ),
-                                  IconButton(
-                                    icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.blueAccent),
-                                    visualDensity: VisualDensity.compact,
+                                  PopupMenuButton<String>(
+                                    icon: const Icon(Icons.more_vert, size: 18, color: Colors.grey),
                                     padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                                    tooltip: 'Edit Holiday',
-                                    onPressed: () => _showEditHolidayDialog(context, holidayDao, h),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.delete_outline, size: 18, color: Colors.grey),
-                                    visualDensity: VisualDensity.compact,
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                                    tooltip: 'Delete Holiday',
-                                    onPressed: () async {
-                                      await holidayDao.deleteHoliday(h.id);
-                                      ref.invalidate(selectedDateEventsProvider);
-                                      ref.invalidate(todayEventsProvider);
-                                      ref.invalidate(allEventsStreamProvider);
-                                      ref.read(supabaseSyncServiceProvider.notifier).syncNow();
+                                    onSelected: (action) async {
+                                      if (action == 'edit') {
+                                        _showEditHolidayDialog(context, holidayDao, h);
+                                      } else if (action == 'delete') {
+                                        await holidayDao.deleteHoliday(h.id);
+                                        ref.invalidate(selectedDateEventsProvider);
+                                        ref.invalidate(todayEventsProvider);
+                                        ref.invalidate(allEventsStreamProvider);
+                                        ref.read(supabaseSyncServiceProvider.notifier).syncNow();
+                                      }
                                     },
+                                    itemBuilder: (ctx) => [
+                                      const PopupMenuItem(
+                                        value: 'edit',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.edit_outlined, size: 16, color: Colors.blueAccent),
+                                            SizedBox(width: 8),
+                                            Text('Edit Break'),
+                                          ],
+                                        ),
+                                      ),
+                                      const PopupMenuItem(
+                                        value: 'delete',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.delete_outline, size: 16, color: Colors.redAccent),
+                                            SizedBox(width: 8),
+                                            Text('Delete Break'),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
@@ -1848,6 +1866,38 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     }
                   },
                 ),
+                if (kIsWeb)
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.refresh, size: 18, color: Colors.orangeAccent),
+                    label: const Text('Clear Web App Cache & Reload', style: TextStyle(color: Colors.orangeAccent)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.orangeAccent),
+                    ),
+                    onPressed: () async {
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('Clear Browser Cache & Reload?'),
+                          content: const Text(
+                            'This will unregister web service workers, wipe offline browser caches, and perform a hard reload to fetch the latest Kairos version.',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(false),
+                              child: const Text('Cancel'),
+                            ),
+                            FilledButton(
+                              onPressed: () => Navigator.of(ctx).pop(true),
+                              child: const Text('Reload Now'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirm == true) {
+                        await hardReloadBrowser();
+                      }
+                    },
+                  ),
               ],
             ),
           ],

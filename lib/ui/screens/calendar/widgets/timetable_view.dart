@@ -14,6 +14,7 @@ import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/notification_service.dart';
 import 'package:kairos/services/settings_service.dart';
+import 'package:kairos/services/supabase_sync_service.dart';
 import 'package:kairos/services/timezone_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/screens/calendar/widgets/drag_schedule_item.dart';
@@ -580,40 +581,124 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
             );
           }),
 
-          // Events positioned by time
-          ...events.map((event) {
-            return _buildEventTile(context, event, isDark, settings);
+          // Events positioned by time with collision detection (sub-columns for overlapping events)
+          ..._layoutDayEvents(events, settings).map((pEvent) {
+            return _buildEventTile(context, pEvent, isDark, settings);
           }),
         ],
       ),
     );
   }
 
-  Widget _buildEventTile(BuildContext context, Event event, bool isDark, SettingsState settings) {
+  List<_PositionedTimetableEvent> _layoutDayEvents(List<Event> dayEvents, SettingsState settings) {
+    if (dayEvents.isEmpty) return [];
+
+    final raw = <_RawEventBounds>[];
+    for (final e in dayEvents) {
+      final start = TimezoneService.instance.toActiveTime(e.startTime, settings);
+      final end = TimezoneService.instance.toActiveTime(e.endTime, settings);
+      final startMin = (start.hour - _startHour) * 60 + start.minute;
+      final durationMin = end.difference(start).inMinutes.clamp(15, 600);
+      final top = (startMin / 60.0) * _hourHeight;
+      final height = ((durationMin.toDouble()) / 60.0) * _hourHeight;
+      raw.add(_RawEventBounds(
+        event: e,
+        startMin: startMin,
+        endMin: startMin + durationMin,
+        top: top,
+        height: height.clamp(26.0, 400.0),
+      ));
+    }
+
+    raw.sort((a, b) {
+      final cmp = a.startMin.compareTo(b.startMin);
+      if (cmp != 0) return cmp;
+      return (b.endMin - b.startMin).compareTo(a.endMin - a.startMin);
+    });
+
+    // Partition into overlapping clusters
+    final clusters = <List<_RawEventBounds>>[];
+    List<_RawEventBounds> currentCluster = [];
+    int clusterEnd = -1;
+
+    for (final item in raw) {
+      if (currentCluster.isEmpty) {
+        currentCluster.add(item);
+        clusterEnd = item.endMin;
+      } else if (item.startMin < clusterEnd) {
+        currentCluster.add(item);
+        if (item.endMin > clusterEnd) clusterEnd = item.endMin;
+      } else {
+        clusters.add(currentCluster);
+        currentCluster = [item];
+        clusterEnd = item.endMin;
+      }
+    }
+    if (currentCluster.isNotEmpty) {
+      clusters.add(currentCluster);
+    }
+
+    final positioned = <_PositionedTimetableEvent>[];
+    for (final cluster in clusters) {
+      final columns = <int>[];
+      final columnEndTimes = <int>[];
+
+      for (final item in cluster) {
+        int assignedCol = -1;
+        for (int c = 0; c < columnEndTimes.length; c++) {
+          if (columnEndTimes[c] <= item.startMin) {
+            assignedCol = c;
+            columnEndTimes[c] = item.endMin;
+            break;
+          }
+        }
+        if (assignedCol == -1) {
+          assignedCol = columnEndTimes.length;
+          columnEndTimes.add(item.endMin);
+        }
+        columns.add(assignedCol);
+      }
+
+      final totalCols = columnEndTimes.length;
+      final colWidth = (_dayColumnWidth - 4.0) / totalCols;
+
+      for (int i = 0; i < cluster.length; i++) {
+        final item = cluster[i];
+        final col = columns[i];
+        positioned.add(_PositionedTimetableEvent(
+          event: item.event,
+          top: item.top,
+          height: item.height,
+          left: 2.0 + col * colWidth,
+          width: (colWidth - 2.0).clamp(20.0, _dayColumnWidth),
+        ));
+      }
+    }
+
+    return positioned;
+  }
+
+  Widget _buildEventTile(BuildContext context, _PositionedTimetableEvent pEvent, bool isDark, SettingsState settings) {
+    final event = pEvent.event;
     final start = TimezoneService.instance.toActiveTime(event.startTime, settings);
     final end = TimezoneService.instance.toActiveTime(event.endTime, settings);
-
-    final startMinutes = (start.hour - _startHour) * 60 + start.minute;
-    final durationMinutes = end.difference(start).inMinutes;
-
-    final top = (startMinutes / 60.0) * _hourHeight;
-    final height = ((durationMinutes.clamp(15, 600)) / 60.0) * _hourHeight;
-
+    final height = pEvent.height;
+    final width = pEvent.width;
     final baseColor = _getCategoryColor(event.category);
     final isAuto = event.isAutoScheduled;
 
     return Positioned(
-      top: top,
-      left: 2,
-      right: 2,
-      height: height.clamp(26.0, 400.0),
+      top: pEvent.top,
+      left: pEvent.left,
+      width: width,
+      height: height,
       child: GestureDetector(
         onTap: () => _showEventDetails(context, event, settings),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(8),
           child: Container(
             padding: EdgeInsets.symmetric(
-              horizontal: 6,
+              horizontal: width < 60 ? 3.0 : 6.0,
               vertical: height < 45 ? 2.0 : 4.0,
             ),
             decoration: BoxDecoration(
@@ -641,7 +726,7 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
               children: [
                 Row(
                   children: [
-                    if (isAuto)
+                    if (isAuto && width >= 60)
                       const Padding(
                         padding: EdgeInsets.only(right: 3.0),
                         child: Icon(Icons.flash_on, size: 11, color: Colors.purpleAccent),
@@ -650,7 +735,7 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                       child: Text(
                         event.title,
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: width < 60 ? 9.5 : 11,
                           fontWeight: FontWeight.bold,
                           color: isAuto
                               ? (isDark ? Colors.white : Colors.black87)
@@ -662,11 +747,11 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                     ),
                   ],
                 ),
-                if (height >= 50)
+                if (height >= 50 && width >= 70)
                   Text(
                     '${DateFormat('h:mm a').format(start)} – ${DateFormat('h:mm a').format(end)}',
                     style: TextStyle(
-                      fontSize: 9.5,
+                      fontSize: 9.0,
                       color: isAuto
                           ? (isDark ? Colors.white70 : Colors.black54)
                           : Colors.white.withValues(alpha: 0.9),
@@ -737,6 +822,7 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                   onPressed: () async {
                     Navigator.of(sheetContext).pop();
                     await ref.read(eventDaoProvider).deleteEvent(event.id);
+                    ref.read(supabaseSyncServiceProvider.notifier).syncNow();
                     ref.invalidate(selectedDateEventsProvider);
                     ref.invalidate(todayEventsProvider);
                     ref.invalidate(allEventsStreamProvider);
@@ -842,5 +928,37 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
   bool _isSameDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
+}
+
+class _RawEventBounds {
+  final Event event;
+  final int startMin;
+  final int endMin;
+  final double top;
+  final double height;
+
+  const _RawEventBounds({
+    required this.event,
+    required this.startMin,
+    required this.endMin,
+    required this.top,
+    required this.height,
+  });
+}
+
+class _PositionedTimetableEvent {
+  final Event event;
+  final double top;
+  final double height;
+  final double left;
+  final double width;
+
+  const _PositionedTimetableEvent({
+    required this.event,
+    required this.top,
+    required this.height,
+    required this.left,
+    required this.width,
+  });
 }
 

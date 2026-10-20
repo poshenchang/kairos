@@ -262,6 +262,61 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
     }
   }
 
+  /// Helper to decide if a remote record should override a local record.
+  /// Prevents false overwrites from clock skew or future timestamps,
+  /// and guarantees that a local soft-deletion is never overridden by an older active remote record.
+  bool _shouldRemoteOverrideLocal({
+    required DateTime localUpdatedAt,
+    required DateTime remoteUpdatedAt,
+    required bool localIsDeleted,
+    required bool remoteIsDeleted,
+  }) {
+    final nowUtc = DateTime.now().toUtc();
+    final localUtc = localUpdatedAt.toUtc();
+    var remoteUtc = remoteUpdatedAt.toUtc();
+
+    // Clock-skew / past timezone bug protection:
+    // If remoteUpdatedAt is in the future (> 2 minutes ahead of nowUtc),
+    // it was caused by timezone offset skew. Never allow it to override local data.
+    if (remoteUtc.isAfter(nowUtc.add(const Duration(minutes: 2)))) {
+      return false;
+    }
+
+    // Deletion rule: If an item was soft-deleted locally, never let an active remote item revive it
+    // unless remote explicitly updated AFTER the local deletion occurred.
+    if (localIsDeleted && !remoteIsDeleted) {
+      return remoteUtc.isAfter(localUtc.add(const Duration(seconds: 1)));
+    }
+
+    return remoteUtc.isAfter(localUtc);
+  }
+
+  /// Helper to decide if a local record should be pushed to remote.
+  bool _shouldPushLocal({
+    required DateTime localUpdatedAt,
+    DateTime? remoteUpdatedAt,
+    required bool localIsDeleted,
+    bool? remoteIsDeleted,
+  }) {
+    if (remoteUpdatedAt == null) return true;
+    final nowUtc = DateTime.now().toUtc();
+    final localUtc = localUpdatedAt.toUtc();
+    final remoteUtc = remoteUpdatedAt.toUtc();
+
+    // If remote timestamp is in the future (> 2 minutes ahead of nowUtc),
+    // local must push to correct the skewed remote timestamp.
+    if (remoteUtc.isAfter(nowUtc.add(const Duration(minutes: 2)))) {
+      return true;
+    }
+
+    // If locally deleted and remote is not deleted, always push the deletion!
+    if (localIsDeleted && remoteIsDeleted != true) {
+      return true;
+    }
+
+    return localUtc.isAfter(remoteUtc);
+  }
+
   // ── 1. CATEGORIES SYNC ─────────────────────────────────────────────
   Future<int> _syncCategories() async {
     final url = Uri.parse('$_cleanBaseUrl/rest/v1/categories?select=*');
@@ -285,7 +340,8 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
       // Pull remote changes
       for (final remote in remoteMap.values) {
         final syncId = remote['sync_id'] as String;
-        final remoteUpdatedAt = DateTime.parse(remote['updated_at'] as String);
+        final remoteUpdatedAt = DateTime.parse(remote['updated_at'] as String).toUtc();
+        final remoteIsDeleted = remote['is_deleted'] as bool? ?? false;
         final local = localMap[syncId];
 
         if (local == null) {
@@ -302,7 +358,7 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
                 emoji: Value(remote['emoji'] as String? ?? '📌'),
                 colorHex: Value(remote['color_hex'] as String? ?? '#4A90D9'),
                 isSystem: Value(remote['is_system'] as bool? ?? false),
-                isDeleted: Value(remote['is_deleted'] as bool? ?? false),
+                isDeleted: Value(remoteIsDeleted),
                 updatedAt: Value(remoteUpdatedAt),
               ),
             );
@@ -315,13 +371,18 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
                     emoji: Value(remote['emoji'] as String? ?? '📌'),
                     colorHex: Value(remote['color_hex'] as String? ?? '#4A90D9'),
                     isSystem: Value(remote['is_system'] as bool? ?? false),
-                    isDeleted: Value(remote['is_deleted'] as bool? ?? false),
-                    createdAt: Value(DateTime.parse(remote['created_at'] as String)),
+                    isDeleted: Value(remoteIsDeleted),
+                    createdAt: Value(DateTime.parse(remote['created_at'] as String).toUtc()),
                     updatedAt: Value(remoteUpdatedAt),
                   ),
                 );
           }
-        } else if (remoteUpdatedAt.isAfter(local.updatedAt)) {
+        } else if (_shouldRemoteOverrideLocal(
+          localUpdatedAt: local.updatedAt,
+          remoteUpdatedAt: remoteUpdatedAt,
+          localIsDeleted: local.isDeleted,
+          remoteIsDeleted: remoteIsDeleted,
+        )) {
           // Remote is newer (LWW)
           await (_db.update(_db.categories)..where((tbl) => tbl.id.equals(local.id))).write(
             CategoriesCompanion(
@@ -329,7 +390,7 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
               emoji: Value(remote['emoji'] as String? ?? '📌'),
               colorHex: Value(remote['color_hex'] as String? ?? '#4A90D9'),
               isSystem: Value(remote['is_system'] as bool? ?? false),
-              isDeleted: Value(remote['is_deleted'] as bool? ?? false),
+              isDeleted: Value(remoteIsDeleted),
               updatedAt: Value(remoteUpdatedAt),
             ),
           );
@@ -339,7 +400,15 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
       // Check which locals need pushing
       for (final local in localList) {
         final remote = remoteMap[local.syncId!];
-        if (remote == null || local.updatedAt.isAfter(DateTime.parse(remote['updated_at'] as String))) {
+        final remoteUpdatedAt = remote != null ? DateTime.parse(remote['updated_at'] as String).toUtc() : null;
+        final remoteIsDeleted = remote?['is_deleted'] as bool?;
+
+        if (_shouldPushLocal(
+          localUpdatedAt: local.updatedAt,
+          remoteUpdatedAt: remoteUpdatedAt,
+          localIsDeleted: local.isDeleted,
+          remoteIsDeleted: remoteIsDeleted,
+        )) {
           toPush.add({
             'sync_id': local.syncId,
             'name': local.name,
@@ -348,15 +417,15 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
             'color_hex': local.colorHex,
             'is_system': local.isSystem,
             'is_deleted': local.isDeleted,
-            'created_at': local.createdAt.toIso8601String(),
-            'updated_at': local.updatedAt.toIso8601String(),
+            'created_at': local.createdAt.toUtc().toIso8601String(),
+            'updated_at': local.updatedAt.toUtc().toIso8601String(),
           });
         }
       }
     });
 
     if (toPush.isNotEmpty) {
-      final pushUrl = Uri.parse('$_cleanBaseUrl/rest/v1/categories');
+      final pushUrl = Uri.parse('$_cleanBaseUrl/rest/v1/categories?on_conflict=sync_id');
       final pushRes = await http.post(pushUrl, headers: _headers, body: jsonEncode(toPush));
       if (pushRes.statusCode >= 400) {
         throw Exception('Push categories failed (${pushRes.statusCode}): ${pushRes.body}');
@@ -388,7 +457,8 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
     await _db.transaction(() async {
       for (final remote in remoteMap.values) {
         final syncId = remote['sync_id'] as String;
-        final remoteUpdatedAt = DateTime.parse(remote['updated_at'] as String);
+        final remoteUpdatedAt = DateTime.parse(remote['updated_at'] as String).toUtc();
+        final remoteIsDeleted = remote['is_deleted'] as bool? ?? false;
         final local = localMap[syncId];
 
         if (local == null) {
@@ -407,12 +477,17 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
                   isAutoScheduled: Value(remote['is_auto_scheduled'] as bool? ?? false),
                   autoScheduleSource: Value(remote['auto_schedule_source'] as String?),
                   notes: Value(remote['notes'] as String?),
-                  isDeleted: Value(remote['is_deleted'] as bool? ?? false),
-                  createdAt: Value(DateTime.parse(remote['created_at'] as String)),
+                  isDeleted: Value(remoteIsDeleted),
+                  createdAt: Value(DateTime.parse(remote['created_at'] as String).toUtc()),
                   updatedAt: Value(remoteUpdatedAt),
                 ),
               );
-        } else if (remoteUpdatedAt.isAfter(local.updatedAt)) {
+        } else if (_shouldRemoteOverrideLocal(
+          localUpdatedAt: local.updatedAt,
+          remoteUpdatedAt: remoteUpdatedAt,
+          localIsDeleted: local.isDeleted,
+          remoteIsDeleted: remoteIsDeleted,
+        )) {
           await (_db.update(_db.events)..where((tbl) => tbl.id.equals(local.id))).write(
             EventsCompanion(
               title: Value(remote['title'] as String),
@@ -427,7 +502,7 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
               isAutoScheduled: Value(remote['is_auto_scheduled'] as bool? ?? false),
               autoScheduleSource: Value(remote['auto_schedule_source'] as String?),
               notes: Value(remote['notes'] as String?),
-              isDeleted: Value(remote['is_deleted'] as bool? ?? false),
+              isDeleted: Value(remoteIsDeleted),
               updatedAt: Value(remoteUpdatedAt),
             ),
           );
@@ -436,7 +511,15 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
 
       for (final local in localList) {
         final remote = remoteMap[local.syncId!];
-        if (remote == null || local.updatedAt.isAfter(DateTime.parse(remote['updated_at'] as String))) {
+        final remoteUpdatedAt = remote != null ? DateTime.parse(remote['updated_at'] as String).toUtc() : null;
+        final remoteIsDeleted = remote?['is_deleted'] as bool?;
+
+        if (_shouldPushLocal(
+          localUpdatedAt: local.updatedAt,
+          remoteUpdatedAt: remoteUpdatedAt,
+          localIsDeleted: local.isDeleted,
+          remoteIsDeleted: remoteIsDeleted,
+        )) {
           toPush.add({
             'sync_id': local.syncId,
             'title': local.title,
@@ -452,15 +535,15 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
             'auto_schedule_source': local.autoScheduleSource,
             'notes': local.notes,
             'is_deleted': local.isDeleted,
-            'created_at': local.createdAt.toIso8601String(),
-            'updated_at': local.updatedAt.toIso8601String(),
+            'created_at': local.createdAt.toUtc().toIso8601String(),
+            'updated_at': local.updatedAt.toUtc().toIso8601String(),
           });
         }
       }
     });
 
     if (toPush.isNotEmpty) {
-      final pushUrl = Uri.parse('$_cleanBaseUrl/rest/v1/events');
+      final pushUrl = Uri.parse('$_cleanBaseUrl/rest/v1/events?on_conflict=sync_id');
       final pushRes = await http.post(pushUrl, headers: _headers, body: jsonEncode(toPush));
       if (pushRes.statusCode >= 400) {
         throw Exception('Push events failed (${pushRes.statusCode}): ${pushRes.body}');
@@ -492,7 +575,8 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
     await _db.transaction(() async {
       for (final remote in remoteMap.values) {
         final syncId = remote['sync_id'] as String;
-        final remoteUpdatedAt = DateTime.parse(remote['updated_at'] as String);
+        final remoteUpdatedAt = DateTime.parse(remote['updated_at'] as String).toUtc();
+        final remoteIsDeleted = remote['is_deleted'] as bool? ?? false;
         final local = localMap[syncId];
 
         if (local == null) {
@@ -509,12 +593,17 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
                   rrule: Value(remote['rrule'] as String?),
                   isCompleted: Value(remote['is_completed'] as bool? ?? false),
                   completedAt: Value(remote['completed_at'] != null ? TimezoneService.instance.parseRemoteTimestamp(remote['completed_at'] as String) : null),
-                  isDeleted: Value(remote['is_deleted'] as bool? ?? false),
-                  createdAt: Value(DateTime.parse(remote['created_at'] as String)),
+                  isDeleted: Value(remoteIsDeleted),
+                  createdAt: Value(DateTime.parse(remote['created_at'] as String).toUtc()),
                   updatedAt: Value(remoteUpdatedAt),
                 ),
               );
-        } else if (remoteUpdatedAt.isAfter(local.updatedAt)) {
+        } else if (_shouldRemoteOverrideLocal(
+          localUpdatedAt: local.updatedAt,
+          remoteUpdatedAt: remoteUpdatedAt,
+          localIsDeleted: local.isDeleted,
+          remoteIsDeleted: remoteIsDeleted,
+        )) {
           await (_db.update(_db.tasks)..where((tbl) => tbl.id.equals(local.id))).write(
             TasksCompanion(
               title: Value(remote['title'] as String),
@@ -527,7 +616,7 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
               rrule: Value(remote['rrule'] as String?),
               isCompleted: Value(remote['is_completed'] as bool? ?? false),
               completedAt: Value(remote['completed_at'] != null ? TimezoneService.instance.parseRemoteTimestamp(remote['completed_at'] as String) : null),
-              isDeleted: Value(remote['is_deleted'] as bool? ?? false),
+              isDeleted: Value(remoteIsDeleted),
               updatedAt: Value(remoteUpdatedAt),
             ),
           );
@@ -536,7 +625,15 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
 
       for (final local in localList) {
         final remote = remoteMap[local.syncId!];
-        if (remote == null || local.updatedAt.isAfter(DateTime.parse(remote['updated_at'] as String))) {
+        final remoteUpdatedAt = remote != null ? DateTime.parse(remote['updated_at'] as String).toUtc() : null;
+        final remoteIsDeleted = remote?['is_deleted'] as bool?;
+
+        if (_shouldPushLocal(
+          localUpdatedAt: local.updatedAt,
+          remoteUpdatedAt: remoteUpdatedAt,
+          localIsDeleted: local.isDeleted,
+          remoteIsDeleted: remoteIsDeleted,
+        )) {
           toPush.add({
             'sync_id': local.syncId,
             'title': local.title,
@@ -550,15 +647,15 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
             'is_completed': local.isCompleted,
             'completed_at': local.completedAt != null ? TimezoneService.instance.formatForRemoteSync(local.completedAt!) : null,
             'is_deleted': local.isDeleted,
-            'created_at': local.createdAt.toIso8601String(),
-            'updated_at': local.updatedAt.toIso8601String(),
+            'created_at': local.createdAt.toUtc().toIso8601String(),
+            'updated_at': local.updatedAt.toUtc().toIso8601String(),
           });
         }
       }
     });
 
     if (toPush.isNotEmpty) {
-      final pushUrl = Uri.parse('$_cleanBaseUrl/rest/v1/tasks');
+      final pushUrl = Uri.parse('$_cleanBaseUrl/rest/v1/tasks?on_conflict=sync_id');
       final pushRes = await http.post(pushUrl, headers: _headers, body: jsonEncode(toPush));
       if (pushRes.statusCode >= 400) {
         throw Exception('Push tasks failed (${pushRes.statusCode}): ${pushRes.body}');
@@ -603,8 +700,9 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
         final parentTaskId = taskSyncIdToLocalId[taskSyncId]!;
         final local = localMap[syncId];
         final remoteUpdatedAt = remote['updated_at'] != null
-            ? DateTime.parse(remote['updated_at'] as String)
-            : DateTime.parse(remote['created_at'] as String);
+            ? DateTime.parse(remote['updated_at'] as String).toUtc()
+            : DateTime.parse(remote['created_at'] as String).toUtc();
+        final remoteIsDeleted = remote['is_deleted'] as bool? ?? false;
 
         if (local == null) {
           await _db.into(_db.subtasks).insert(
@@ -613,17 +711,22 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
                   taskId: parentTaskId,
                   title: remote['title'] as String,
                   isCompleted: Value(remote['is_completed'] as bool? ?? false),
-                  isDeleted: Value(remote['is_deleted'] as bool? ?? false),
-                  createdAt: Value(DateTime.parse(remote['created_at'] as String)),
+                  isDeleted: Value(remoteIsDeleted),
+                  createdAt: Value(DateTime.parse(remote['created_at'] as String).toUtc()),
                   updatedAt: Value(remoteUpdatedAt),
                 ),
               );
-        } else if (remoteUpdatedAt.isAfter(local.updatedAt)) {
+        } else if (_shouldRemoteOverrideLocal(
+          localUpdatedAt: local.updatedAt,
+          remoteUpdatedAt: remoteUpdatedAt,
+          localIsDeleted: local.isDeleted,
+          remoteIsDeleted: remoteIsDeleted,
+        )) {
           await (_db.update(_db.subtasks)..where((tbl) => tbl.id.equals(local.id))).write(
             SubtasksCompanion(
               title: Value(remote['title'] as String),
               isCompleted: Value(remote['is_completed'] as bool? ?? false),
-              isDeleted: Value(remote['is_deleted'] as bool? ?? false),
+              isDeleted: Value(remoteIsDeleted),
               updatedAt: Value(remoteUpdatedAt),
             ),
           );
@@ -635,22 +738,32 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
         if (parentSyncId == null) continue;
 
         final remote = remoteMap[local.syncId!];
-        if (remote == null || local.updatedAt.isAfter(DateTime.parse(remote['updated_at'] ?? remote['created_at']))) {
+        final remoteUpdatedAt = remote != null
+            ? DateTime.parse(remote['updated_at'] ?? remote['created_at']).toUtc()
+            : null;
+        final remoteIsDeleted = remote?['is_deleted'] as bool?;
+
+        if (_shouldPushLocal(
+          localUpdatedAt: local.updatedAt,
+          remoteUpdatedAt: remoteUpdatedAt,
+          localIsDeleted: local.isDeleted,
+          remoteIsDeleted: remoteIsDeleted,
+        )) {
           toPush.add({
             'sync_id': local.syncId,
             'task_sync_id': parentSyncId,
             'title': local.title,
             'is_completed': local.isCompleted,
             'is_deleted': local.isDeleted,
-            'created_at': local.createdAt.toIso8601String(),
-            'updated_at': local.updatedAt.toIso8601String(),
+            'created_at': local.createdAt.toUtc().toIso8601String(),
+            'updated_at': local.updatedAt.toUtc().toIso8601String(),
           });
         }
       }
     });
 
     if (toPush.isNotEmpty) {
-      final pushUrl = Uri.parse('$_cleanBaseUrl/rest/v1/subtasks');
+      final pushUrl = Uri.parse('$_cleanBaseUrl/rest/v1/subtasks?on_conflict=sync_id');
       final pushRes = await http.post(pushUrl, headers: _headers, body: jsonEncode(toPush));
       if (pushRes.statusCode >= 400) {
         throw Exception('Push subtasks failed (${pushRes.statusCode}): ${pushRes.body}');
@@ -682,7 +795,8 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
     await _db.transaction(() async {
       for (final remote in remoteMap.values) {
         final syncId = remote['sync_id'] as String;
-        final remoteUpdatedAt = DateTime.parse(remote['updated_at'] as String);
+        final remoteUpdatedAt = DateTime.parse(remote['updated_at'] as String).toUtc();
+        final remoteIsDeleted = remote['is_deleted'] as bool? ?? false;
         final local = localMap[syncId];
 
         if (local == null) {
@@ -699,12 +813,17 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
                   daysFilter: Value(remote['days_filter'] as String? ?? 'all'),
                   isActive: Value(remote['is_active'] as bool? ?? true),
                   defaultSchedule: Value(remote['default_schedule'] as String?),
-                  isDeleted: Value(remote['is_deleted'] as bool? ?? false),
-                  createdAt: Value(DateTime.parse(remote['created_at'] as String)),
+                  isDeleted: Value(remoteIsDeleted),
+                  createdAt: Value(DateTime.parse(remote['created_at'] as String).toUtc()),
                   updatedAt: Value(remoteUpdatedAt),
                 ),
               );
-        } else if (remoteUpdatedAt.isAfter(local.updatedAt)) {
+        } else if (_shouldRemoteOverrideLocal(
+          localUpdatedAt: local.updatedAt,
+          remoteUpdatedAt: remoteUpdatedAt,
+          localIsDeleted: local.isDeleted,
+          remoteIsDeleted: remoteIsDeleted,
+        )) {
           await (_db.update(_db.habits)..where((tbl) => tbl.id.equals(local.id))).write(
             HabitsCompanion(
               title: Value(remote['title'] as String),
@@ -714,8 +833,9 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
               preferredWindow: Value(remote['preferred_time_of_day'] as String? ?? 'any'),
               daysFilter: Value(remote['days_filter'] as String? ?? 'all'),
               isActive: Value(remote['is_active'] as bool? ?? true),
-              defaultSchedule: Value(remote['default_schedule'] as String?),
-              isDeleted: Value(remote['is_deleted'] as bool? ?? false),
+              // Never wipe out local default schedule with remote NULL
+              defaultSchedule: Value((remote['default_schedule'] as String?) ?? local.defaultSchedule),
+              isDeleted: Value(remoteIsDeleted),
               updatedAt: Value(remoteUpdatedAt),
             ),
           );
@@ -724,7 +844,20 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
 
       for (final local in localList) {
         final remote = remoteMap[local.syncId!];
-        if (remote == null || local.updatedAt.isAfter(DateTime.parse(remote['updated_at'] as String))) {
+        final remoteUpdatedAt = remote != null ? DateTime.parse(remote['updated_at'] as String).toUtc() : null;
+        final remoteIsDeleted = remote?['is_deleted'] as bool?;
+
+        // If local has default schedule and remote does not, ensure it gets pushed
+        final needsSchedulePush = local.defaultSchedule != null &&
+            remote != null &&
+            remote['default_schedule'] == null;
+
+        if (needsSchedulePush || _shouldPushLocal(
+          localUpdatedAt: local.updatedAt,
+          remoteUpdatedAt: remoteUpdatedAt,
+          localIsDeleted: local.isDeleted,
+          remoteIsDeleted: remoteIsDeleted,
+        )) {
           toPush.add({
             'sync_id': local.syncId,
             'title': local.title,
@@ -738,15 +871,15 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
             'is_active': local.isActive,
             'default_schedule': local.defaultSchedule,
             'is_deleted': local.isDeleted,
-            'created_at': local.createdAt.toIso8601String(),
-            'updated_at': local.updatedAt.toIso8601String(),
+            'created_at': local.createdAt.toUtc().toIso8601String(),
+            'updated_at': local.updatedAt.toUtc().toIso8601String(),
           });
         }
       }
     });
 
     if (toPush.isNotEmpty) {
-      final pushUrl = Uri.parse('$_cleanBaseUrl/rest/v1/habits');
+      final pushUrl = Uri.parse('$_cleanBaseUrl/rest/v1/habits?on_conflict=sync_id');
       final pushRes = await http.post(pushUrl, headers: _headers, body: jsonEncode(toPush));
       if (pushRes.statusCode >= 400) {
         throw Exception('Push habits failed (${pushRes.statusCode}): ${pushRes.body}');
@@ -790,8 +923,8 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
         final parentHabitId = habitSyncIdToLocalId[habitSyncId]!;
         final local = localMap[syncId];
         final remoteUpdatedAt = remote['updated_at'] != null
-            ? DateTime.parse(remote['updated_at'] as String)
-            : DateTime.parse(remote['created_at'] as String);
+            ? DateTime.parse(remote['updated_at'] as String).toUtc()
+            : DateTime.parse(remote['created_at'] as String).toUtc();
         final remoteIsDeleted = remote['is_deleted'] as bool? ?? false;
 
         if (local == null) {
@@ -803,11 +936,16 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
                   durationMinutes: Value(remote['duration_minutes'] as int?),
                   notes: Value(remote['notes'] as String?),
                   isDeleted: Value(remoteIsDeleted),
-                  createdAt: Value(DateTime.parse(remote['created_at'] as String)),
+                  createdAt: Value(DateTime.parse(remote['created_at'] as String).toUtc()),
                   updatedAt: Value(remoteUpdatedAt),
                 ),
               );
-        } else if (remoteUpdatedAt.isAfter(local.updatedAt)) {
+        } else if (_shouldRemoteOverrideLocal(
+          localUpdatedAt: local.updatedAt,
+          remoteUpdatedAt: remoteUpdatedAt,
+          localIsDeleted: local.isDeleted,
+          remoteIsDeleted: remoteIsDeleted,
+        )) {
           await (_db.update(_db.habitLogs)..where((tbl) => tbl.id.equals(local.id))).write(
             HabitLogsCompanion(
               completedAt: Value(TimezoneService.instance.parseRemoteTimestamp(remote['completed_at'] as String)),
@@ -825,7 +963,17 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
         if (parentSyncId == null) continue;
 
         final remote = remoteMap[local.syncId!];
-        if (remote == null || local.updatedAt.isAfter(DateTime.parse(remote['updated_at'] ?? remote['created_at']))) {
+        final remoteUpdatedAt = remote != null
+            ? DateTime.parse(remote['updated_at'] ?? remote['created_at']).toUtc()
+            : null;
+        final remoteIsDeleted = remote?['is_deleted'] as bool?;
+
+        if (_shouldPushLocal(
+          localUpdatedAt: local.updatedAt,
+          remoteUpdatedAt: remoteUpdatedAt,
+          localIsDeleted: local.isDeleted,
+          remoteIsDeleted: remoteIsDeleted,
+        )) {
           toPush.add({
             'sync_id': local.syncId,
             'habit_sync_id': parentSyncId,
@@ -833,15 +981,15 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
             'duration_minutes': local.durationMinutes,
             'notes': local.notes,
             'is_deleted': local.isDeleted,
-            'created_at': local.createdAt.toIso8601String(),
-            'updated_at': local.updatedAt.toIso8601String(),
+            'created_at': local.createdAt.toUtc().toIso8601String(),
+            'updated_at': local.updatedAt.toUtc().toIso8601String(),
           });
         }
       }
     });
 
     if (toPush.isNotEmpty) {
-      final pushUrl = Uri.parse('$_cleanBaseUrl/rest/v1/habit_logs');
+      final pushUrl = Uri.parse('$_cleanBaseUrl/rest/v1/habit_logs?on_conflict=sync_id');
       final pushRes = await http.post(pushUrl, headers: _headers, body: jsonEncode(toPush));
       if (pushRes.statusCode >= 400) {
         throw Exception('Push habit logs failed (${pushRes.statusCode}): ${pushRes.body}');
@@ -1031,7 +1179,7 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
     }
 
     if (toPush.isNotEmpty) {
-      final pushUrl = Uri.parse('$_cleanBaseUrl/rest/v1/holidays');
+      final pushUrl = Uri.parse('$_cleanBaseUrl/rest/v1/holidays?on_conflict=sync_id');
       final pushRes = await http.post(pushUrl, headers: _headers, body: jsonEncode(toPush));
       if (pushRes.statusCode >= 400) {
         throw Exception('Push holidays failed (${pushRes.statusCode}): ${pushRes.body}');

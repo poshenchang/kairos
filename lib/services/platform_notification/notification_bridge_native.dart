@@ -27,3 +27,5 @@ String getPlatformNotificationPermission() {
   return 'granted';
 }
 
+Future<void> hardReloadBrowser() async {}
+

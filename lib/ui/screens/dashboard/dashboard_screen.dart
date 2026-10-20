@@ -317,9 +317,12 @@ class DashboardScreen extends ConsumerWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
-              'Uncompleted Tasks & Deadlines',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            const Expanded(
+              child: Text(
+                'Uncompleted Tasks & Deadlines',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
             IconButton(
               icon: const Icon(Icons.add, size: 20),
@@ -452,9 +455,12 @@ class DashboardScreen extends ConsumerWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
-              'Today\'s Timeline',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            const Expanded(
+              child: Text(
+                'Today\'s Timeline',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
             IconButton(
               icon: const Icon(Icons.add, size: 20),
@@ -623,9 +629,12 @@ class DashboardScreen extends ConsumerWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
-              'Habits This Week',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            const Expanded(
+              child: Text(
+                'Habits This Week',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
             Text(
               'Frequency cadence',

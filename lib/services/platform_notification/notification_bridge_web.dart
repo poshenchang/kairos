@@ -32,3 +32,9 @@ String getPlatformNotificationPermission() {
   }
 }
 
+Future<void> hardReloadBrowser() async {
+  try {
+    js.context.callMethod('kairosHardReload');
+  } catch (_) {}
+}
+

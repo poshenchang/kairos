@@ -12,6 +12,7 @@ import 'package:intl/intl.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/settings_service.dart';
+import 'package:kairos/services/supabase_sync_service.dart';
 import 'package:kairos/services/timezone_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/screens/calendar/widgets/timetable_view.dart';
@@ -592,6 +593,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               tooltip: 'Delete Event',
               onPressed: () async {
                 await ref.read(eventDaoProvider).deleteEvent(event.id);
+                ref.read(supabaseSyncServiceProvider.notifier).syncNow();
                 ref.invalidate(selectedDateEventsProvider);
                 ref.invalidate(todayEventsProvider);
                 ref.invalidate(allEventsStreamProvider);

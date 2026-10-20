@@ -13,3 +13,5 @@ Future<String> requestPlatformNotificationPermission() =>
 String getPlatformNotificationPermission() =>
     impl.getPlatformNotificationPermission();
 
+Future<void> hardReloadBrowser() => impl.hardReloadBrowser();
+

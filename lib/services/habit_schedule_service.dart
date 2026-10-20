@@ -12,6 +12,9 @@ import 'package:intl/intl.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/notification_service.dart';
+import 'package:kairos/services/settings_service.dart';
+import 'package:kairos/services/supabase_sync_service.dart';
+import 'package:kairos/services/timezone_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _kHabitSchedulesKey = 'kairos_habit_default_schedules';
@@ -95,6 +98,7 @@ class HabitScheduleNotifier extends StateNotifier<Map<int, List<HabitDefaultSlot
     }
 
     // 2. Fallback to SharedPreferences (migrate local legacy templates to DB)
+    bool migratedAny = false;
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_kHabitSchedulesKey);
@@ -116,6 +120,7 @@ class HabitScheduleNotifier extends StateNotifier<Map<int, List<HabitDefaultSlot
                   updatedAt: drift.Value(DateTime.now().toUtc()),
                 ),
               );
+              migratedAny = true;
             }
           }
         }
@@ -123,6 +128,11 @@ class HabitScheduleNotifier extends StateNotifier<Map<int, List<HabitDefaultSlot
     } catch (_) {}
 
     state = map;
+    if (migratedAny && _ref != null) {
+      try {
+        _ref!.read(supabaseSyncServiceProvider.notifier).syncNow();
+      } catch (_) {}
+    }
   }
 
   Future<void> _save() async {
@@ -158,6 +168,8 @@ class HabitScheduleNotifier extends StateNotifier<Map<int, List<HabitDefaultSlot
             updatedAt: drift.Value(DateTime.now().toUtc()),
           ),
         );
+        // Immediately push to Supabase
+        _ref!.read(supabaseSyncServiceProvider.notifier).syncNow();
       } catch (_) {}
     }
 
@@ -235,17 +247,26 @@ class HabitScheduleNotifier extends StateNotifier<Map<int, List<HabitDefaultSlot
       }
 
       // 2. Insert the default schedule slots
+      final settings = _ref?.read(settingsNotifierProvider);
+
       for (final slot in slots) {
         final daysFromSunday = slot.weekday % 7;
         final targetDate = baseSunday.add(Duration(days: daysFromSunday));
-        final start = DateTime(targetDate.year, targetDate.month, targetDate.day, slot.hour, slot.minute);
-        final end = start.add(Duration(minutes: slot.durationMinutes));
+        final activeStart = DateTime(targetDate.year, targetDate.month, targetDate.day, slot.hour, slot.minute);
+        final activeEnd = activeStart.add(Duration(minutes: slot.durationMinutes));
+
+        final utcStart = settings != null
+            ? TimezoneService.instance.fromActiveTime(activeStart, settings)
+            : activeStart.toUtc();
+        final utcEnd = settings != null
+            ? TimezoneService.instance.fromActiveTime(activeEnd, settings)
+            : activeEnd.toUtc();
 
         final newId = await eventDao.insertEvent(
           EventsCompanion.insert(
             title: habit.title,
-            startTime: start,
-            endTime: end,
+            startTime: utcStart,
+            endTime: utcEnd,
             category: drift.Value(habit.category),
             isAutoScheduled: const drift.Value(true),
             autoScheduleSource: drift.Value('habit:${habit.id}'),
@@ -261,6 +282,12 @@ class HabitScheduleNotifier extends StateNotifier<Map<int, List<HabitDefaultSlot
           }
         }
       }
+    }
+
+    if (insertedCount > 0 && _ref != null) {
+      try {
+        _ref!.read(supabaseSyncServiceProvider.notifier).syncNow();
+      } catch (_) {}
     }
 
     return insertedCount;

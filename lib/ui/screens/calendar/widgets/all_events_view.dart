@@ -10,6 +10,7 @@ import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/event_repository.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/settings_service.dart';
+import 'package:kairos/services/supabase_sync_service.dart';
 import 'package:kairos/services/timezone_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/widgets/add_event_dialog.dart';
@@ -548,6 +549,7 @@ class _AllEventsViewState extends ConsumerState<AllEventsView> {
                 tooltip: 'Delete Event',
                 onPressed: () async {
                   await ref.read(eventDaoProvider).deleteEvent(event.id);
+                  ref.read(supabaseSyncServiceProvider.notifier).syncNow();
                   ref.invalidate(allEventsStreamProvider);
                   ref.invalidate(selectedDateEventsProvider);
                   ref.invalidate(todayEventsProvider);
