@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:kairos/data/database/app_database.dart';
+import 'package:kairos/data/repositories/event_repository.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/habit_schedule_service.dart';
 import 'package:kairos/services/notification_service.dart';
@@ -40,8 +41,22 @@ class ScheduleSidebar extends ConsumerStatefulWidget {
   ConsumerState<ScheduleSidebar> createState() => _ScheduleSidebarState();
 }
 
+class _SidebarItem {
+  final int typePriority; // 0: Task, 1: Prep, 2: Habit
+  final bool isScheduled; // false: unscheduled, true: scheduled
+  final DateTime sortDate; // urgency / date
+  final Widget cardWidget;
+
+  _SidebarItem({
+    required this.typePriority,
+    required this.isScheduled,
+    required this.sortDate,
+    required this.cardWidget,
+  });
+}
+
 class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
-  String _selectedTab = 'all'; // 'all', 'tasks', 'habits', 'preps'
+  String _selectedTab = 'all'; // 'all', 'tasks', 'preps', 'habits'
 
   @override
   Widget build(BuildContext context) {
@@ -53,6 +68,7 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
     final completionsAsync = ref.watch(habitCompletionsForWeekProvider(widget.currentWeekStart));
     final allEventsAsync = ref.watch(allEventsStreamProvider);
     final habitSchedules = ref.watch(habitScheduleProvider);
+    final eventRepo = ref.watch(eventRepositoryProvider);
 
     final tasks = tasksAsync.value ?? [];
     final habits = habitsAsync.value ?? [];
@@ -62,16 +78,33 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
     final settings = ref.watch(settingsNotifierProvider);
 
     // Filter upcoming events that require preparation (Exams, Interviews, Presentations)
-    // Automatically disappears from sidebar once the exam or interview event ends.
+    // Supports both single events and recurring event series.
     final now = TimezoneService.instance.activeNow(settings);
-    final prepEvents = allEvents.where((e) {
-      final activeEnd = TimezoneService.instance.toActiveTime(e.endTime, settings);
-      return !e.isDeleted &&
-          e.requiresPrep &&
-          !e.isAutoScheduled &&
-          activeEnd.isAfter(now);
-    }).toList()
-      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+    final prepEvents = <Event>[];
+    for (final e in allEvents) {
+      if (e.isDeleted || !e.requiresPrep || e.isAutoScheduled) continue;
+      if (e.isRecurring && e.rrule != null && e.rrule!.isNotEmpty) {
+        final occurrences = eventRepo.expandRecurringEvents(
+          e,
+          now.subtract(const Duration(days: 7)),
+          now.add(const Duration(days: 60)),
+          settings: settings,
+        );
+        final hasUpcoming = occurrences.any((occ) {
+          final activeEnd = TimezoneService.instance.toActiveTime(occ.endTime, settings);
+          return activeEnd.isAfter(now);
+        });
+        if (hasUpcoming) {
+          prepEvents.add(e);
+        }
+      } else {
+        final activeEnd = TimezoneService.instance.toActiveTime(e.endTime, settings);
+        if (activeEnd.isAfter(now)) {
+          prepEvents.add(e);
+        }
+      }
+    }
+    prepEvents.sort((a, b) => a.startTime.compareTo(b.startTime));
 
     final totalCount = tasks.length + habits.length + prepEvents.length;
 
@@ -92,55 +125,66 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
                   ),
                   const SizedBox(width: 6),
                   const Text(
-                    'Assistant',
+                    'Schedule Assistant',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: SegmentedButton<String>(
-                        showSelectedIcon: false,
-                        style: const ButtonStyle(
-                          visualDensity: VisualDensity.compact,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        segments: [
-                          ButtonSegment(
-                            value: 'all',
-                            label: Text('All ($totalCount)', style: const TextStyle(fontSize: 10)),
-                          ),
-                          ButtonSegment(
-                            value: 'habits',
-                            label: Text('Habits (${habits.length})', style: const TextStyle(fontSize: 10)),
-                          ),
-                          ButtonSegment(
-                            value: 'preps',
-                            label: Text('Preps (${prepEvents.length})', style: const TextStyle(fontSize: 10)),
-                          ),
-                          ButtonSegment(
-                            value: 'tasks',
-                            label: Text('Tasks (${tasks.length})', style: const TextStyle(fontSize: 10)),
-                          ),
-                        ],
-                        selected: {_selectedTab},
-                        onSelectionChanged: (val) {
-                          setState(() => _selectedTab = val.first);
-                        },
+                  const Spacer(),
+                  if (habits.isNotEmpty)
+                    TextButton.icon(
+                      icon: const Icon(Icons.auto_awesome, size: 14, color: Colors.purpleAccent),
+                      label: const Text('Init Week', style: TextStyle(fontSize: 11, color: Colors.purpleAccent)),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       ),
+                      onPressed: () => _populateWeekHabits(context, ref, habits, allEvents, isDark),
                     ),
-                  ),
                   if (widget.onClose != null) ...[
                     const SizedBox(width: 4),
                     IconButton(
                       icon: const Icon(Icons.close, size: 18),
-                      tooltip: 'Close Sidebar',
+                      tooltip: 'Close Assistant',
                       onPressed: widget.onClose,
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
                     ),
                   ],
                 ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+              child: SizedBox(
+                width: double.infinity,
+                child: SegmentedButton<String>(
+                  showSelectedIcon: false,
+                  style: const ButtonStyle(
+                    visualDensity: VisualDensity.compact,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  segments: [
+                    ButtonSegment(
+                      value: 'all',
+                      label: Text('All ($totalCount)', style: const TextStyle(fontSize: 10)),
+                    ),
+                    ButtonSegment(
+                      value: 'tasks',
+                      label: Text('Tasks (${tasks.length})', style: const TextStyle(fontSize: 10)),
+                    ),
+                    ButtonSegment(
+                      value: 'preps',
+                      label: Text('Preps (${prepEvents.length})', style: const TextStyle(fontSize: 10)),
+                    ),
+                    ButtonSegment(
+                      value: 'habits',
+                      label: Text('Habits (${habits.length})', style: const TextStyle(fontSize: 10)),
+                    ),
+                  ],
+                  selected: {_selectedTab},
+                  onSelectionChanged: (val) {
+                    setState(() => _selectedTab = val.first);
+                  },
+                ),
               ),
             ),
             const Divider(height: 6),
@@ -154,6 +198,9 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
                 allEvents: allEvents,
                 habitSchedules: habitSchedules,
                 isDark: isDark,
+                now: now,
+                settings: settings,
+                eventRepo: eventRepo,
               ),
             ),
           ] else ...[
@@ -198,7 +245,7 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
               ),
             ),
 
-            // Filter Segmented Control
+            // Filter Segmented Control (Order: All, Tasks, Preps, Habits)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
               child: SizedBox(
@@ -215,16 +262,16 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
                       label: Text('All ($totalCount)', style: const TextStyle(fontSize: 10.5)),
                     ),
                     ButtonSegment(
-                      value: 'habits',
-                      label: Text('Habits (${habits.length})', style: const TextStyle(fontSize: 10.5)),
+                      value: 'tasks',
+                      label: Text('Tasks (${tasks.length})', style: const TextStyle(fontSize: 10.5)),
                     ),
                     ButtonSegment(
                       value: 'preps',
                       label: Text('Preps (${prepEvents.length})', style: const TextStyle(fontSize: 10.5)),
                     ),
                     ButtonSegment(
-                      value: 'tasks',
-                      label: Text('Tasks (${tasks.length})', style: const TextStyle(fontSize: 10.5)),
+                      value: 'habits',
+                      label: Text('Habits (${habits.length})', style: const TextStyle(fontSize: 10.5)),
                     ),
                   ],
                   selected: {_selectedTab},
@@ -238,117 +285,200 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
 
             // Content List
             Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                children: [
-                // ── Habits Section ──
-                if (_selectedTab == 'all' || _selectedTab == 'habits') ...[
-                  _buildSectionHeader(
-                    context,
-                    title: 'Active Habits',
-                    icon: Icons.repeat,
-                    count: habits.length,
-                    onAdd: () => AddHabitDialog.show(context),
-                  ),
+              child: Builder(
+                builder: (context) {
+                  final weekStart = DateTime(widget.currentWeekStart.year, widget.currentWeekStart.month, widget.currentWeekStart.day);
+                  final weekEnd = weekStart.add(const Duration(days: 7));
+                  final items = <_SidebarItem>[];
 
-                  // Initialize Week with Default Schedule Button
-                  if (habits.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8.0, top: 2.0),
-                      child: OutlinedButton.icon(
-                        icon: const Icon(Icons.auto_awesome, size: 14, color: Colors.purpleAccent),
-                        label: const Text('Initialize Week with Default Habits', style: TextStyle(fontSize: 11)),
-                        style: OutlinedButton.styleFrom(
-                          visualDensity: VisualDensity.compact,
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          side: BorderSide(color: Colors.purple.withValues(alpha: 0.4)),
-                        ),
-                        onPressed: () async {
-                          final eventDao = ref.read(eventDaoProvider);
-                          final notificationService = ref.read(notificationServiceProvider);
-                          final count = await ref.read(habitScheduleProvider.notifier).populateWeek(
-                            weekSunday: widget.currentWeekStart,
-                            habits: habits,
-                            eventDao: eventDao,
-                            existingEvents: allEvents,
-                            notificationService: notificationService,
-                          );
-                          ref.invalidate(selectedDateEventsProvider);
-                          ref.invalidate(todayEventsProvider);
-                          ref.invalidate(allEventsStreamProvider);
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).clearSnackBars();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                behavior: SnackBarBehavior.floating,
-                                width: 420,
-                                backgroundColor: isDark ? const Color(0xFF1E293B) : const Color(0xFF0F172A),
-                                content: Text(
-                                  count > 0
-                                      ? 'Scheduled $count habit sessions from your default template!'
-                                      : 'All habit default slots are already populated for this week.',
-                                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                                ),
-                                duration: const Duration(seconds: 4),
-                              ),
-                            );
-                          }
-                        },
-                      ),
-                    ),
+                  // 1. Tasks (typePriority: 0)
+                  if (_selectedTab == 'all' || _selectedTab == 'tasks') {
+                    for (final task in tasks) {
+                      final isSched = _isTaskScheduled(task, allEvents);
+                      items.add(_SidebarItem(
+                        typePriority: 0,
+                        isScheduled: isSched,
+                        sortDate: task.dueDate,
+                        cardWidget: _buildTaskCard(context, task, allEvents, isDark),
+                      ));
+                    }
+                  }
 
-                  if (habits.isEmpty)
-                    _buildEmptyState('No active habits', 'Create one to schedule regular practice')
-                  else
-                    ...habits.map((habit) => _buildHabitCard(
+                  // 2. Preps (typePriority: 1)
+                  if (_selectedTab == 'all' || _selectedTab == 'preps') {
+                    for (final event in prepEvents) {
+                      final isSched = _isPrepScheduled(event, allEvents, now, settings, eventRepo);
+                      final sortDate = _getUpcomingPrepStart(event, now, settings, eventRepo);
+                      items.add(_SidebarItem(
+                        typePriority: 1,
+                        isScheduled: isSched,
+                        sortDate: sortDate,
+                        cardWidget: _buildPrepCard(context, event, allEvents, isDark, now, settings, eventRepo),
+                      ));
+                    }
+                  }
+
+                  // 3. Habits (typePriority: 2)
+                  if (_selectedTab == 'all' || _selectedTab == 'habits') {
+                    for (final habit in habits) {
+                      final completedCount = completions[habit.id] ?? 0;
+                      final isSched = _isHabitScheduled(habit, completedCount, allEvents, weekStart, weekEnd, settings);
+                      items.add(_SidebarItem(
+                        typePriority: 2,
+                        isScheduled: isSched,
+                        sortDate: DateTime(2099, 1, 1),
+                        cardWidget: _buildHabitCard(
                           context,
                           habit,
                           completions,
                           allEvents,
                           habitSchedules[habit.id] ?? [],
                           isDark,
-                        )),
-                  const SizedBox(height: 14),
-                ],
+                        ),
+                      ));
+                    }
+                  }
 
-                // ── Exam & Interview Preps Section ──
-                if (_selectedTab == 'all' || _selectedTab == 'preps') ...[
-                  _buildSectionHeader(
-                    context,
-                    title: 'Exam & Interview Preps',
-                    icon: Icons.school_outlined,
-                    count: prepEvents.length,
-                    onAdd: () => AddEventDialog.show(context),
-                  ),
-                  if (prepEvents.isEmpty)
-                    _buildEmptyState('No exam/interview preps needed', 'Create an event with "Requires Prep" enabled')
-                  else
-                    ...prepEvents.map((event) => _buildPrepCard(context, event, allEvents, isDark)),
-                  const SizedBox(height: 14),
-                ],
+                  // Sorting:
+                  // Rule 1 (Highest priority): Unscheduled items first (!isScheduled)
+                  // Rule 2: Tasks (0) -> Prep (1) -> Habits (2)
+                  // Rule 3: Date / Urgency
+                  items.sort((a, b) {
+                    if (!a.isScheduled && b.isScheduled) return -1;
+                    if (a.isScheduled && !b.isScheduled) return 1;
+                    if (a.typePriority != b.typePriority) {
+                      return a.typePriority.compareTo(b.typePriority);
+                    }
+                    return a.sortDate.compareTo(b.sortDate);
+                  });
 
-                // ── Tasks Section ──
-                if (_selectedTab == 'all' || _selectedTab == 'tasks') ...[
-                  _buildSectionHeader(
-                    context,
-                    title: 'Tasks & Deadlines',
-                    icon: Icons.check_circle_outline,
-                    count: tasks.length,
-                    onAdd: () => AddTaskDialog.show(context),
-                  ),
-                  if (tasks.isEmpty)
-                    _buildEmptyState('All tasks caught up!', 'Add a new deadline to get started')
-                  else
-                    ...tasks.map((task) => _buildTaskCard(context, task, allEvents, isDark)),
-                ],
-              ],
+                  if (_selectedTab == 'all') {
+                    final unscheduled = items.where((i) => !i.isScheduled).toList();
+                    final scheduled = items.where((i) => i.isScheduled).toList();
+
+                    return ListView(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      children: [
+                        if (unscheduled.isNotEmpty) ...[
+                          _buildSectionHeader(
+                            context,
+                            title: 'To Schedule (Needs Time)',
+                            icon: Icons.pending_actions,
+                            count: unscheduled.length,
+                          ),
+                          if (habits.isNotEmpty && unscheduled.any((i) => i.typePriority == 2))
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8.0, top: 2.0),
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.auto_awesome, size: 14, color: Colors.purpleAccent),
+                                label: const Text('Initialize Week with Default Habits', style: TextStyle(fontSize: 11)),
+                                style: OutlinedButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  side: BorderSide(color: Colors.purple.withValues(alpha: 0.4)),
+                                ),
+                                onPressed: () => _populateWeekHabits(context, ref, habits, allEvents, isDark),
+                              ),
+                            ),
+                          ...unscheduled.map((i) => i.cardWidget),
+                          const SizedBox(height: 14),
+                        ],
+                        if (scheduled.isNotEmpty) ...[
+                          _buildSectionHeader(
+                            context,
+                            title: 'Scheduled & Fulfilled',
+                            icon: Icons.task_alt,
+                            count: scheduled.length,
+                          ),
+                          ...scheduled.map((i) => i.cardWidget),
+                        ],
+                        if (unscheduled.isEmpty && scheduled.isEmpty)
+                          _buildEmptyState('No items to schedule', 'Add tasks, prep events, or habits to get started'),
+                      ],
+                    );
+                  }
+
+                  if (_selectedTab == 'tasks') {
+                    final taskItems = items.where((i) => i.typePriority == 0).toList();
+                    return ListView(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      children: [
+                        _buildSectionHeader(
+                          context,
+                          title: 'Tasks & Deadlines',
+                          icon: Icons.check_circle_outline,
+                          count: tasks.length,
+                          onAdd: () => AddTaskDialog.show(context),
+                        ),
+                        if (taskItems.isEmpty)
+                          _buildEmptyState('All tasks caught up!', 'Add a new deadline to get started')
+                        else
+                          ...taskItems.map((i) => i.cardWidget),
+                      ],
+                    );
+                  }
+
+                  if (_selectedTab == 'preps') {
+                    final prepItems = items.where((i) => i.typePriority == 1).toList();
+                    return ListView(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      children: [
+                        _buildSectionHeader(
+                          context,
+                          title: 'Exam & Interview Preps',
+                          icon: Icons.school_outlined,
+                          count: prepEvents.length,
+                          onAdd: () => AddEventDialog.show(context),
+                        ),
+                        if (prepItems.isEmpty)
+                          _buildEmptyState('No exam/interview preps needed', 'Create an event with "Requires Prep" enabled')
+                        else
+                          ...prepItems.map((i) => i.cardWidget),
+                      ],
+                    );
+                  }
+
+                  // _selectedTab == 'habits'
+                  final habitItems = items.where((i) => i.typePriority == 2).toList();
+                  return ListView(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    children: [
+                      _buildSectionHeader(
+                        context,
+                        title: 'Active Habits',
+                        icon: Icons.repeat,
+                        count: habits.length,
+                        onAdd: () => AddHabitDialog.show(context),
+                      ),
+                      if (habits.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8.0, top: 2.0),
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.auto_awesome, size: 14, color: Colors.purpleAccent),
+                            label: const Text('Initialize Week with Default Habits', style: TextStyle(fontSize: 11)),
+                            style: OutlinedButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              side: BorderSide(color: Colors.purple.withValues(alpha: 0.4)),
+                            ),
+                            onPressed: () => _populateWeekHabits(context, ref, habits, allEvents, isDark),
+                          ),
+                        ),
+                      if (habitItems.isEmpty)
+                        _buildEmptyState('No active habits', 'Create one to schedule regular practice')
+                      else
+                        ...habitItems.map((i) => i.cardWidget),
+                    ],
+                  );
+                },
+              ),
             ),
-          ),
+          ],
         ],
-      ],
-    ),
-  );
+      ),
+    );
   }
 
   Widget _buildHorizontalContent(
@@ -360,56 +490,91 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
     required List<Event> allEvents,
     required Map<int, List<HabitDefaultSlot>> habitSchedules,
     required bool isDark,
+    required DateTime now,
+    required SettingsState settings,
+    required EventRepository eventRepo,
   }) {
-    final cardWidgets = <Widget>[];
+    final items = <_SidebarItem>[];
+    final weekStart = DateTime(widget.currentWeekStart.year, widget.currentWeekStart.month, widget.currentWeekStart.day);
+    final weekEnd = weekStart.add(const Duration(days: 7));
 
-    // Habit cards
-    if (_selectedTab == 'all' || _selectedTab == 'habits') {
-      for (final habit in habits) {
-        cardWidgets.add(
-          SizedBox(
-            width: 250,
-            child: SingleChildScrollView(
-              child: _buildHabitCard(
-                context,
-                habit,
-                completions,
-                allEvents,
-                habitSchedules[habit.id] ?? [],
-                isDark,
-              ),
-            ),
-          ),
-        );
-      }
-    }
-
-    // Prep cards
-    if (_selectedTab == 'all' || _selectedTab == 'preps') {
-      for (final event in prepEvents) {
-        cardWidgets.add(
-          SizedBox(
-            width: 250,
-            child: SingleChildScrollView(
-              child: _buildPrepCard(context, event, allEvents, isDark),
-            ),
-          ),
-        );
-      }
-    }
-
-    // Task cards
+    // Tasks (typePriority: 0)
     if (_selectedTab == 'all' || _selectedTab == 'tasks') {
       for (final task in tasks) {
-        cardWidgets.add(
-          SizedBox(
-            width: 260,
-            child: SingleChildScrollView(
-              child: _buildTaskCard(context, task, allEvents, isDark),
-            ),
-          ),
-        );
+        final isSched = _isTaskScheduled(task, allEvents);
+        items.add(_SidebarItem(
+          typePriority: 0,
+          isScheduled: isSched,
+          sortDate: task.dueDate,
+          cardWidget: _buildTaskCard(context, task, allEvents, isDark),
+        ));
       }
+    }
+
+    // Preps (typePriority: 1)
+    if (_selectedTab == 'all' || _selectedTab == 'preps') {
+      for (final event in prepEvents) {
+        final isSched = _isPrepScheduled(event, allEvents, now, settings, eventRepo);
+        final sortDate = _getUpcomingPrepStart(event, now, settings, eventRepo);
+        items.add(_SidebarItem(
+          typePriority: 1,
+          isScheduled: isSched,
+          sortDate: sortDate,
+          cardWidget: _buildPrepCard(context, event, allEvents, isDark, now, settings, eventRepo),
+        ));
+      }
+    }
+
+    // Habits (typePriority: 2)
+    if (_selectedTab == 'all' || _selectedTab == 'habits') {
+      for (final habit in habits) {
+        final completedCount = completions[habit.id] ?? 0;
+        final isSched = _isHabitScheduled(habit, completedCount, allEvents, weekStart, weekEnd, settings);
+        items.add(_SidebarItem(
+          typePriority: 2,
+          isScheduled: isSched,
+          sortDate: DateTime(2099, 1, 1),
+          cardWidget: _buildHabitCard(
+            context,
+            habit,
+            completions,
+            allEvents,
+            habitSchedules[habit.id] ?? [],
+            isDark,
+          ),
+        ));
+      }
+    }
+
+    // Sorting:
+    // Rule 1 (Highest priority): Unscheduled items first (!isScheduled)
+    // Rule 2: Tasks (0) -> Prep (1) -> Habits (2)
+    // Rule 3: Date / Urgency
+    items.sort((a, b) {
+      if (!a.isScheduled && b.isScheduled) return -1;
+      if (a.isScheduled && !b.isScheduled) return 1;
+      if (a.typePriority != b.typePriority) {
+        return a.typePriority.compareTo(b.typePriority);
+      }
+      return a.sortDate.compareTo(b.sortDate);
+    });
+
+    final cardWidgets = <Widget>[];
+
+    // Prepend Init Week card for habits when habits are shown
+    if ((_selectedTab == 'all' || _selectedTab == 'habits') && habits.isNotEmpty) {
+      cardWidgets.add(_buildInitWeekCard(context, ref, habits, allEvents, isDark));
+    }
+
+    for (final item in items) {
+      cardWidgets.add(
+        SizedBox(
+          width: 260,
+          child: SingleChildScrollView(
+            child: item.cardWidget,
+          ),
+        ),
+      );
     }
 
     if (cardWidgets.isEmpty) {
@@ -439,7 +604,7 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
     required String title,
     required IconData icon,
     required int count,
-    required VoidCallback onAdd,
+    VoidCallback? onAdd,
   }) {
     final theme = Theme.of(context);
     return Padding(
@@ -472,13 +637,14 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
             ),
           ),
           const Spacer(),
-          IconButton(
-            icon: const Icon(Icons.add, size: 16),
-            tooltip: 'Add $title',
-            onPressed: onAdd,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-          ),
+          if (onAdd != null)
+            IconButton(
+              icon: const Icon(Icons.add, size: 16),
+              tooltip: 'Add $title',
+              onPressed: onAdd,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+            ),
         ],
       ),
     );
@@ -710,14 +876,59 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
     );
   }
 
-  Widget _buildPrepCard(
-    BuildContext context,
-    Event event,
-    List<Event> allEvents,
-    bool isDark,
-  ) {
-    // Total scheduled prep minutes for this event
-    final prepEvents = allEvents.where((e) {
+  DateTime _getUpcomingPrepStart(Event event, DateTime now, SettingsState settings, EventRepository repo) {
+    if (!event.isRecurring || event.rrule == null || event.rrule!.isEmpty) {
+      return event.startTime;
+    }
+    final occurrences = repo.expandRecurringEvents(
+      event,
+      now.subtract(const Duration(days: 7)),
+      now.add(const Duration(days: 60)),
+      settings: settings,
+    );
+    occurrences.sort((a, b) => a.startTime.compareTo(b.startTime));
+    for (final occ in occurrences) {
+      final activeEnd = TimezoneService.instance.toActiveTime(occ.endTime, settings);
+      if (activeEnd.isAfter(now)) {
+        return occ.startTime;
+      }
+    }
+    return event.startTime;
+  }
+
+  int _calculateScheduledPrepMinutes(Event event, List<Event> allEvents, DateTime now, SettingsState settings, EventRepository repo) {
+    DateTime? windowStart;
+    DateTime? windowEnd;
+
+    if (event.isRecurring && event.rrule != null && event.rrule!.isNotEmpty) {
+      final occurrences = repo.expandRecurringEvents(
+        event,
+        now.subtract(const Duration(days: 14)),
+        now.add(const Duration(days: 90)),
+        settings: settings,
+      );
+      occurrences.sort((a, b) => a.startTime.compareTo(b.startTime));
+
+      Event? nextOcc;
+      Event? prevOcc;
+      for (final occ in occurrences) {
+        final activeEnd = TimezoneService.instance.toActiveTime(occ.endTime, settings);
+        if (activeEnd.isAfter(now)) {
+          nextOcc = occ;
+          break;
+        }
+        prevOcc = occ;
+      }
+
+      if (nextOcc != null) {
+        windowEnd = nextOcc.startTime;
+        windowStart = prevOcc != null
+            ? prevOcc.endTime
+            : nextOcc.startTime.subtract(const Duration(days: 7));
+      }
+    }
+
+    final matchingPrepEvents = allEvents.where((e) {
       if (e.isDeleted) return false;
       final src = e.autoScheduleSource;
       if (src != null) {
@@ -735,16 +946,173 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
         return true;
       }
       return false;
-    }).toList();
+    });
 
     int scheduledMinutes = 0;
-    for (final e in prepEvents) {
+    for (final e in matchingPrepEvents) {
+      if (windowStart != null && e.startTime.isBefore(windowStart)) continue;
+      if (windowEnd != null && e.startTime.isAfter(windowEnd)) continue;
       scheduledMinutes += e.endTime.difference(e.startTime).inMinutes;
     }
+    return scheduledMinutes;
+  }
 
+  int _calculateScheduledTaskMinutes(Task task, List<Event> allEvents) {
+    final taskEvents = allEvents.where((e) {
+      if (e.isDeleted) return false;
+      if (e.autoScheduleSource?.startsWith('task:${task.id}') != true) return false;
+      if (task.completedAt != null && e.endTime.isBefore(task.completedAt!)) {
+        return false;
+      }
+      return true;
+    });
+
+    int scheduledMinutes = 0;
+    for (final e in taskEvents) {
+      scheduledMinutes += e.endTime.difference(e.startTime).inMinutes;
+    }
+    return scheduledMinutes;
+  }
+
+  bool _isTaskScheduled(Task task, List<Event> allEvents) {
+    if (task.isCompleted) return true;
+    final scheduled = _calculateScheduledTaskMinutes(task, allEvents);
+    final target = task.estimatedMinutes ?? 60;
+    return scheduled >= target;
+  }
+
+  bool _isPrepScheduled(Event event, List<Event> allEvents, DateTime now, SettingsState settings, EventRepository repo) {
+    final scheduled = _calculateScheduledPrepMinutes(event, allEvents, now, settings, repo);
+    final target = event.prepMinutes ?? 60;
+    return scheduled >= target;
+  }
+
+  int _calculateScheduledHabitCount(Habit habit, List<Event> allEvents, DateTime weekStart, DateTime weekEnd, SettingsState settings) {
+    return allEvents.where((e) {
+      if (e.isDeleted) return false;
+      final start = TimezoneService.instance.toActiveTime(e.startTime, settings);
+      if (start.isBefore(weekStart) || !start.isBefore(weekEnd)) return false;
+      final src = e.autoScheduleSource;
+      final matchesSource = src != null && (
+        src == 'habit:${habit.id}' ||
+        src.startsWith('habit:${habit.id};') ||
+        src.startsWith('habit:${habit.id}:')
+      );
+      final matchesTitle = e.title.trim().toLowerCase() == habit.title.trim().toLowerCase();
+      return matchesSource || (matchesTitle && (e.isAutoScheduled || e.category == habit.category));
+    }).length;
+  }
+
+  bool _isHabitScheduled(Habit habit, int completedCount, List<Event> allEvents, DateTime weekStart, DateTime weekEnd, SettingsState settings) {
+    final scheduled = _calculateScheduledHabitCount(habit, allEvents, weekStart, weekEnd, settings);
+    return (completedCount + scheduled) >= habit.targetFrequencyPerWeek;
+  }
+
+  Future<void> _populateWeekHabits(
+    BuildContext context,
+    WidgetRef ref,
+    List<Habit> habits,
+    List<Event> allEvents,
+    bool isDark,
+  ) async {
+    final eventDao = ref.read(eventDaoProvider);
+    final notificationService = ref.read(notificationServiceProvider);
+    final count = await ref.read(habitScheduleProvider.notifier).populateWeek(
+      weekSunday: widget.currentWeekStart,
+      habits: habits,
+      eventDao: eventDao,
+      existingEvents: allEvents,
+      notificationService: notificationService,
+    );
+    ref.invalidate(selectedDateEventsProvider);
+    ref.invalidate(todayEventsProvider);
+    ref.invalidate(allEventsStreamProvider);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          width: 420,
+          backgroundColor: isDark ? const Color(0xFF1E293B) : const Color(0xFF0F172A),
+          content: Text(
+            count > 0
+                ? 'Scheduled $count habit sessions from your default template!'
+                : 'All habit default slots are already populated for this week.',
+            style: const TextStyle(color: Colors.white, fontSize: 12),
+          ),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
+  }
+
+  Widget _buildInitWeekCard(
+    BuildContext context,
+    WidgetRef ref,
+    List<Habit> habits,
+    List<Event> allEvents,
+    bool isDark,
+  ) {
+    return Container(
+      width: 140,
+      margin: const EdgeInsets.only(right: 8, bottom: 2),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF231C38) : const Color(0xFFF5EEFF),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.purple.withValues(alpha: 0.35), width: 1.2),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.auto_awesome, color: Colors.purpleAccent, size: 24),
+          const SizedBox(height: 6),
+          const Text(
+            'Init Week',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.purple),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 2),
+          const Text(
+            'Default Habits',
+            style: TextStyle(fontSize: 10, color: Colors.purple),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.purple,
+              foregroundColor: Colors.white,
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+            ),
+            onPressed: () => _populateWeekHabits(context, ref, habits, allEvents, isDark),
+            child: const Text('Populate', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPrepCard(
+    BuildContext context,
+    Event event,
+    List<Event> allEvents,
+    bool isDark, [
+    DateTime? nowParam,
+    SettingsState? settingsParam,
+    EventRepository? eventRepoParam,
+  ]) {
+    final SettingsState effectiveSettings = settingsParam ?? ref.watch(settingsNotifierProvider);
+    final DateTime effectiveNow = nowParam ?? TimezoneService.instance.activeNow(effectiveSettings);
+    final EventRepository effectiveRepo = eventRepoParam ?? ref.watch(eventRepositoryProvider);
+
+    final scheduledMinutes = _calculateScheduledPrepMinutes(event, allEvents, effectiveNow, effectiveSettings, effectiveRepo);
+    final displayedStart = _getUpcomingPrepStart(event, effectiveNow, effectiveSettings, effectiveRepo);
     final targetPrep = event.prepMinutes ?? 60;
     final progress = targetPrep > 0 ? (scheduledMinutes / targetPrep).clamp(0.0, 1.0) : 0.0;
-    final eventStart = TimezoneService.instance.toActiveTime(event.startTime, ref.watch(settingsNotifierProvider));
+    final eventStart = TimezoneService.instance.toActiveTime(displayedStart, effectiveSettings);
     final categoryColor = _getCategoryColor(event.category);
 
     final dragItem = DragScheduleItem(

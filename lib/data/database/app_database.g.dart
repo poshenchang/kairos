@@ -2167,6 +2167,12 @@ class $HabitsTable extends Habits with TableInfo<$HabitsTable, Habit> {
       defaultConstraints:
           GeneratedColumn.constraintIsAlways('CHECK ("is_active" IN (0, 1))'),
       defaultValue: const Constant(true));
+  static const VerificationMeta _defaultScheduleMeta =
+      const VerificationMeta('defaultSchedule');
+  @override
+  late final GeneratedColumn<String> defaultSchedule = GeneratedColumn<String>(
+      'default_schedule', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _isDeletedMeta =
       const VerificationMeta('isDeleted');
   @override
@@ -2206,6 +2212,7 @@ class $HabitsTable extends Habits with TableInfo<$HabitsTable, Habit> {
         preferredWindow,
         daysFilter,
         isActive,
+        defaultSchedule,
         isDeleted,
         createdAt,
         updatedAt
@@ -2277,6 +2284,12 @@ class $HabitsTable extends Habits with TableInfo<$HabitsTable, Habit> {
       context.handle(_isActiveMeta,
           isActive.isAcceptableOrUnknown(data['is_active']!, _isActiveMeta));
     }
+    if (data.containsKey('default_schedule')) {
+      context.handle(
+          _defaultScheduleMeta,
+          defaultSchedule.isAcceptableOrUnknown(
+              data['default_schedule']!, _defaultScheduleMeta));
+    }
     if (data.containsKey('is_deleted')) {
       context.handle(_isDeletedMeta,
           isDeleted.isAcceptableOrUnknown(data['is_deleted']!, _isDeletedMeta));
@@ -2321,6 +2334,8 @@ class $HabitsTable extends Habits with TableInfo<$HabitsTable, Habit> {
           .read(DriftSqlType.string, data['${effectivePrefix}days_filter'])!,
       isActive: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}is_active'])!,
+      defaultSchedule: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}default_schedule']),
       isDeleted: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}is_deleted'])!,
       createdAt: attachedDatabase.typeMapping
@@ -2360,6 +2375,9 @@ class Habit extends DataClass implements Insertable<Habit> {
 
   /// Whether the habit is currently active (visible to scheduler).
   final bool isActive;
+
+  /// Default weekly schedule slots stored as JSON template for multi-device sync.
+  final String? defaultSchedule;
   final bool isDeleted;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -2375,6 +2393,7 @@ class Habit extends DataClass implements Insertable<Habit> {
       required this.preferredWindow,
       required this.daysFilter,
       required this.isActive,
+      this.defaultSchedule,
       required this.isDeleted,
       required this.createdAt,
       required this.updatedAt});
@@ -2396,6 +2415,9 @@ class Habit extends DataClass implements Insertable<Habit> {
     map['preferred_window'] = Variable<String>(preferredWindow);
     map['days_filter'] = Variable<String>(daysFilter);
     map['is_active'] = Variable<bool>(isActive);
+    if (!nullToAbsent || defaultSchedule != null) {
+      map['default_schedule'] = Variable<String>(defaultSchedule);
+    }
     map['is_deleted'] = Variable<bool>(isDeleted);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
@@ -2418,6 +2440,9 @@ class Habit extends DataClass implements Insertable<Habit> {
       preferredWindow: Value(preferredWindow),
       daysFilter: Value(daysFilter),
       isActive: Value(isActive),
+      defaultSchedule: defaultSchedule == null && nullToAbsent
+          ? const Value.absent()
+          : Value(defaultSchedule),
       isDeleted: Value(isDeleted),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
@@ -2440,6 +2465,7 @@ class Habit extends DataClass implements Insertable<Habit> {
       preferredWindow: serializer.fromJson<String>(json['preferredWindow']),
       daysFilter: serializer.fromJson<String>(json['daysFilter']),
       isActive: serializer.fromJson<bool>(json['isActive']),
+      defaultSchedule: serializer.fromJson<String?>(json['defaultSchedule']),
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
@@ -2460,6 +2486,7 @@ class Habit extends DataClass implements Insertable<Habit> {
       'preferredWindow': serializer.toJson<String>(preferredWindow),
       'daysFilter': serializer.toJson<String>(daysFilter),
       'isActive': serializer.toJson<bool>(isActive),
+      'defaultSchedule': serializer.toJson<String?>(defaultSchedule),
       'isDeleted': serializer.toJson<bool>(isDeleted),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
@@ -2478,6 +2505,7 @@ class Habit extends DataClass implements Insertable<Habit> {
           String? preferredWindow,
           String? daysFilter,
           bool? isActive,
+          Value<String?> defaultSchedule = const Value.absent(),
           bool? isDeleted,
           DateTime? createdAt,
           DateTime? updatedAt}) =>
@@ -2494,6 +2522,9 @@ class Habit extends DataClass implements Insertable<Habit> {
         preferredWindow: preferredWindow ?? this.preferredWindow,
         daysFilter: daysFilter ?? this.daysFilter,
         isActive: isActive ?? this.isActive,
+        defaultSchedule: defaultSchedule.present
+            ? defaultSchedule.value
+            : this.defaultSchedule,
         isDeleted: isDeleted ?? this.isDeleted,
         createdAt: createdAt ?? this.createdAt,
         updatedAt: updatedAt ?? this.updatedAt,
@@ -2521,6 +2552,9 @@ class Habit extends DataClass implements Insertable<Habit> {
       daysFilter:
           data.daysFilter.present ? data.daysFilter.value : this.daysFilter,
       isActive: data.isActive.present ? data.isActive.value : this.isActive,
+      defaultSchedule: data.defaultSchedule.present
+          ? data.defaultSchedule.value
+          : this.defaultSchedule,
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
@@ -2541,6 +2575,7 @@ class Habit extends DataClass implements Insertable<Habit> {
           ..write('preferredWindow: $preferredWindow, ')
           ..write('daysFilter: $daysFilter, ')
           ..write('isActive: $isActive, ')
+          ..write('defaultSchedule: $defaultSchedule, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
@@ -2561,6 +2596,7 @@ class Habit extends DataClass implements Insertable<Habit> {
       preferredWindow,
       daysFilter,
       isActive,
+      defaultSchedule,
       isDeleted,
       createdAt,
       updatedAt);
@@ -2579,6 +2615,7 @@ class Habit extends DataClass implements Insertable<Habit> {
           other.preferredWindow == this.preferredWindow &&
           other.daysFilter == this.daysFilter &&
           other.isActive == this.isActive &&
+          other.defaultSchedule == this.defaultSchedule &&
           other.isDeleted == this.isDeleted &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
@@ -2596,6 +2633,7 @@ class HabitsCompanion extends UpdateCompanion<Habit> {
   final Value<String> preferredWindow;
   final Value<String> daysFilter;
   final Value<bool> isActive;
+  final Value<String?> defaultSchedule;
   final Value<bool> isDeleted;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
@@ -2611,6 +2649,7 @@ class HabitsCompanion extends UpdateCompanion<Habit> {
     this.preferredWindow = const Value.absent(),
     this.daysFilter = const Value.absent(),
     this.isActive = const Value.absent(),
+    this.defaultSchedule = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
@@ -2627,6 +2666,7 @@ class HabitsCompanion extends UpdateCompanion<Habit> {
     this.preferredWindow = const Value.absent(),
     this.daysFilter = const Value.absent(),
     this.isActive = const Value.absent(),
+    this.defaultSchedule = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
@@ -2643,6 +2683,7 @@ class HabitsCompanion extends UpdateCompanion<Habit> {
     Expression<String>? preferredWindow,
     Expression<String>? daysFilter,
     Expression<bool>? isActive,
+    Expression<String>? defaultSchedule,
     Expression<bool>? isDeleted,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
@@ -2660,6 +2701,7 @@ class HabitsCompanion extends UpdateCompanion<Habit> {
       if (preferredWindow != null) 'preferred_window': preferredWindow,
       if (daysFilter != null) 'days_filter': daysFilter,
       if (isActive != null) 'is_active': isActive,
+      if (defaultSchedule != null) 'default_schedule': defaultSchedule,
       if (isDeleted != null) 'is_deleted': isDeleted,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
@@ -2678,6 +2720,7 @@ class HabitsCompanion extends UpdateCompanion<Habit> {
       Value<String>? preferredWindow,
       Value<String>? daysFilter,
       Value<bool>? isActive,
+      Value<String?>? defaultSchedule,
       Value<bool>? isDeleted,
       Value<DateTime>? createdAt,
       Value<DateTime>? updatedAt}) {
@@ -2694,6 +2737,7 @@ class HabitsCompanion extends UpdateCompanion<Habit> {
       preferredWindow: preferredWindow ?? this.preferredWindow,
       daysFilter: daysFilter ?? this.daysFilter,
       isActive: isActive ?? this.isActive,
+      defaultSchedule: defaultSchedule ?? this.defaultSchedule,
       isDeleted: isDeleted ?? this.isDeleted,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -2737,6 +2781,9 @@ class HabitsCompanion extends UpdateCompanion<Habit> {
     if (isActive.present) {
       map['is_active'] = Variable<bool>(isActive.value);
     }
+    if (defaultSchedule.present) {
+      map['default_schedule'] = Variable<String>(defaultSchedule.value);
+    }
     if (isDeleted.present) {
       map['is_deleted'] = Variable<bool>(isDeleted.value);
     }
@@ -2763,6 +2810,7 @@ class HabitsCompanion extends UpdateCompanion<Habit> {
           ..write('preferredWindow: $preferredWindow, ')
           ..write('daysFilter: $daysFilter, ')
           ..write('isActive: $isActive, ')
+          ..write('defaultSchedule: $defaultSchedule, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
@@ -5154,6 +5202,7 @@ typedef $$HabitsTableCreateCompanionBuilder = HabitsCompanion Function({
   Value<String> preferredWindow,
   Value<String> daysFilter,
   Value<bool> isActive,
+  Value<String?> defaultSchedule,
   Value<bool> isDeleted,
   Value<DateTime> createdAt,
   Value<DateTime> updatedAt,
@@ -5170,6 +5219,7 @@ typedef $$HabitsTableUpdateCompanionBuilder = HabitsCompanion Function({
   Value<String> preferredWindow,
   Value<String> daysFilter,
   Value<bool> isActive,
+  Value<String?> defaultSchedule,
   Value<bool> isDeleted,
   Value<DateTime> createdAt,
   Value<DateTime> updatedAt,
@@ -5239,6 +5289,10 @@ class $$HabitsTableFilterComposer
 
   ColumnFilters<bool> get isActive => $composableBuilder(
       column: $table.isActive, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get defaultSchedule => $composableBuilder(
+      column: $table.defaultSchedule,
+      builder: (column) => ColumnFilters(column));
 
   ColumnFilters<bool> get isDeleted => $composableBuilder(
       column: $table.isDeleted, builder: (column) => ColumnFilters(column));
@@ -5317,6 +5371,10 @@ class $$HabitsTableOrderingComposer
   ColumnOrderings<bool> get isActive => $composableBuilder(
       column: $table.isActive, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get defaultSchedule => $composableBuilder(
+      column: $table.defaultSchedule,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<bool> get isDeleted => $composableBuilder(
       column: $table.isDeleted, builder: (column) => ColumnOrderings(column));
 
@@ -5368,6 +5426,9 @@ class $$HabitsTableAnnotationComposer
 
   GeneratedColumn<bool> get isActive =>
       $composableBuilder(column: $table.isActive, builder: (column) => column);
+
+  GeneratedColumn<String> get defaultSchedule => $composableBuilder(
+      column: $table.defaultSchedule, builder: (column) => column);
 
   GeneratedColumn<bool> get isDeleted =>
       $composableBuilder(column: $table.isDeleted, builder: (column) => column);
@@ -5434,6 +5495,7 @@ class $$HabitsTableTableManager extends RootTableManager<
             Value<String> preferredWindow = const Value.absent(),
             Value<String> daysFilter = const Value.absent(),
             Value<bool> isActive = const Value.absent(),
+            Value<String?> defaultSchedule = const Value.absent(),
             Value<bool> isDeleted = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
             Value<DateTime> updatedAt = const Value.absent(),
@@ -5450,6 +5512,7 @@ class $$HabitsTableTableManager extends RootTableManager<
             preferredWindow: preferredWindow,
             daysFilter: daysFilter,
             isActive: isActive,
+            defaultSchedule: defaultSchedule,
             isDeleted: isDeleted,
             createdAt: createdAt,
             updatedAt: updatedAt,
@@ -5466,6 +5529,7 @@ class $$HabitsTableTableManager extends RootTableManager<
             Value<String> preferredWindow = const Value.absent(),
             Value<String> daysFilter = const Value.absent(),
             Value<bool> isActive = const Value.absent(),
+            Value<String?> defaultSchedule = const Value.absent(),
             Value<bool> isDeleted = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
             Value<DateTime> updatedAt = const Value.absent(),
@@ -5482,6 +5546,7 @@ class $$HabitsTableTableManager extends RootTableManager<
             preferredWindow: preferredWindow,
             daysFilter: daysFilter,
             isActive: isActive,
+            defaultSchedule: defaultSchedule,
             isDeleted: isDeleted,
             createdAt: createdAt,
             updatedAt: updatedAt,

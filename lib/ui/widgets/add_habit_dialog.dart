@@ -107,6 +107,7 @@ class _AddHabitDialogState extends ConsumerState<AddHabitDialog> {
       ),
     );
 
+    ref.invalidate(allHabitsProvider);
     ref.invalidate(activeHabitsProvider);
     ref.invalidate(weeklyHabitCompletionsProvider);
 
@@ -302,7 +303,7 @@ class _AddHabitDialogState extends ConsumerState<AddHabitDialog> {
                       SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Daily Habit: Auto-scheduler will insert 1 session every single day into open gaps.',
+                          'Daily Habit: Schedule assistant will insert 1 session every single day into open gaps.',
                           style: TextStyle(fontSize: 12, color: Colors.purple, fontWeight: FontWeight.w600),
                         ),
                       ),
@@ -330,7 +331,7 @@ class _AddHabitDialogState extends ConsumerState<AddHabitDialog> {
               DropdownButtonFormField<String>(
                 initialValue: _preferredWindow,
                 decoration: const InputDecoration(
-                  labelText: 'Preferred Time Window for Auto-Scheduler',
+                  labelText: 'Preferred Time Window for Schedule Assistant',
                   border: OutlineInputBorder(),
                 ),
                 items: const [

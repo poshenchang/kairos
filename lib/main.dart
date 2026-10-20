@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:kairos/core/scheduler/scheduler_provider.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/event_repository.dart';
+import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/habit_suggestion_service.dart';
 import 'package:kairos/services/notification_service.dart';
 import 'package:kairos/services/settings_service.dart';
@@ -50,12 +51,21 @@ class _KairosAppState extends ConsumerState<KairosApp> {
   }
 
   void _startHabitMonitoring() {
+    final db = ref.read(appDatabaseProvider);
+    final settings = ref.read(settingsNotifierProvider);
+    final eventRepo = ref.read(eventRepositoryProvider);
+    NotificationService.instance.startReminderWatcher(
+      db: db,
+      settings: settings,
+      eventRepo: eventRepo,
+    );
+
     // Run initial checks and sync 2 seconds after startup
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
         _runHabitChecks();
-        final settings = ref.read(settingsNotifierProvider);
-        if (settings.isSupabaseConfigured) {
+        final currentSettings = ref.read(settingsNotifierProvider);
+        if (currentSettings.isSupabaseConfigured) {
           ref.read(supabaseSyncServiceProvider.notifier).syncNow();
         }
       }

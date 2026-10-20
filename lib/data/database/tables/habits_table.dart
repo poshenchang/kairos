@@ -40,6 +40,9 @@ class Habits extends Table {
   /// Whether the habit is currently active (visible to scheduler).
   BoolColumn get isActive => boolean().withDefault(const Constant(true))();
 
+  /// Default weekly schedule slots stored as JSON template for multi-device sync.
+  TextColumn get defaultSchedule => text().nullable()();
+
   BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
 
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();

@@ -57,15 +57,16 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     final categories = categoriesAsync.value ?? [];
     final settings = ref.watch(settingsNotifierProvider);
     final viewMode = settings.calendarViewMode;
+    final isMobile = MediaQuery.of(context).size.width < 600;
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
           viewMode == 'all'
-              ? 'All Events Directory'
-              : (viewMode == 'timetable'
-                  ? DateFormat('MMMM yyyy').format(_displayedTimetableMonth)
-                  : DateFormat('MMMM yyyy').format(selectedDate)),
+              ? (isMobile ? 'All Events' : 'All Events Directory')
+              : (isMobile
+                  ? DateFormat('MMMM').format(viewMode == 'timetable' ? _displayedTimetableMonth : selectedDate)
+                  : DateFormat('MMMM yyyy').format(viewMode == 'timetable' ? _displayedTimetableMonth : selectedDate)),
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
@@ -73,7 +74,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
           if (viewMode == 'timetable')
             IconButton(
               icon: Icon(_showSidebar ? Icons.view_sidebar : Icons.view_sidebar_outlined),
-              tooltip: _showSidebar ? 'Hide Scheduler Sidebar' : 'Show Scheduler Sidebar',
+              tooltip: _showSidebar ? 'Hide Schedule Assistant' : 'Show Schedule Assistant',
               onPressed: () => setState(() => _showSidebar = !_showSidebar),
             ),
           // Jump to Date button
@@ -166,7 +167,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                                 if (_showSidebar) ...[
                                   const Divider(height: 1, thickness: 1),
                                   SizedBox(
-                                    height: 195,
+                                    height: 220,
                                     child: ScheduleSidebar(
                                       currentWeekStart: _currentWeekStart,
                                       isHorizontal: true,

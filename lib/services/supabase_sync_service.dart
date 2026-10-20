@@ -14,6 +14,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:kairos/core/scheduler/scheduler_provider.dart';
 import 'package:kairos/data/database/app_database.dart';
+import 'package:kairos/services/habit_schedule_service.dart';
 import 'package:kairos/services/settings_service.dart';
 import 'package:kairos/services/timezone_service.dart';
 
@@ -50,13 +51,14 @@ class SupabaseSyncState {
 class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
   final AppDatabase _db;
   final SettingsState _settings;
+  final Ref? _ref;
   static const _uuid = Uuid();
 
   // Concurrency Mutex
   bool _isSyncing = false;
   bool _hasPendingSync = false;
 
-  SupabaseSyncService(this._db, this._settings) : super(const SupabaseSyncState());
+  SupabaseSyncService(this._db, this._settings, [this._ref]) : super(const SupabaseSyncState());
 
   bool get isConfigured => _settings.isSupabaseConfigured;
 
@@ -176,6 +178,11 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
     // 5. Habits & Habit Logs
     count += await _syncHabits();
     count += await _syncHabitLogs();
+    if (_ref != null) {
+      try {
+        _ref!.read(habitScheduleProvider.notifier).reload();
+      } catch (_) {}
+    }
 
     // 6. Holidays
     count += await _syncHolidays();
@@ -691,6 +698,7 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
                   preferredWindow: Value(remote['preferred_time_of_day'] as String? ?? 'any'),
                   daysFilter: Value(remote['days_filter'] as String? ?? 'all'),
                   isActive: Value(remote['is_active'] as bool? ?? true),
+                  defaultSchedule: Value(remote['default_schedule'] as String?),
                   isDeleted: Value(remote['is_deleted'] as bool? ?? false),
                   createdAt: Value(DateTime.parse(remote['created_at'] as String)),
                   updatedAt: Value(remoteUpdatedAt),
@@ -706,6 +714,7 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
               preferredWindow: Value(remote['preferred_time_of_day'] as String? ?? 'any'),
               daysFilter: Value(remote['days_filter'] as String? ?? 'all'),
               isActive: Value(remote['is_active'] as bool? ?? true),
+              defaultSchedule: Value(remote['default_schedule'] as String?),
               isDeleted: Value(remote['is_deleted'] as bool? ?? false),
               updatedAt: Value(remoteUpdatedAt),
             ),
@@ -727,6 +736,7 @@ class SupabaseSyncService extends StateNotifier<SupabaseSyncState> {
             'preferred_time_of_day': local.preferredWindow,
             'days_filter': local.daysFilter,
             'is_active': local.isActive,
+            'default_schedule': local.defaultSchedule,
             'is_deleted': local.isDeleted,
             'created_at': local.createdAt.toIso8601String(),
             'updated_at': local.updatedAt.toIso8601String(),
@@ -1067,5 +1077,5 @@ final supabaseSyncServiceProvider =
     StateNotifierProvider<SupabaseSyncService, SupabaseSyncState>((ref) {
   final db = ref.watch(appDatabaseProvider);
   final settings = ref.watch(settingsNotifierProvider);
-  return SupabaseSyncService(db, settings);
+  return SupabaseSyncService(db, settings, ref);
 });

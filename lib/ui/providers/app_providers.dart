@@ -95,6 +95,11 @@ final activeHabitsProvider = StreamProvider<List<Habit>>((ref) {
   return dao.watchActiveHabits();
 });
 
+final allHabitsProvider = StreamProvider<List<Habit>>((ref) {
+  final dao = ref.watch(habitDaoProvider);
+  return dao.watchAllHabits();
+});
+
 final habitCompletionsForWeekProvider = StreamProvider.family<Map<int, int>, DateTime>((ref, weekSunday) {
   final dao = ref.watch(habitDaoProvider);
   final start = DateTime(weekSunday.year, weekSunday.month, weekSunday.day);

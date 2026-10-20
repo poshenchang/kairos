@@ -3,8 +3,10 @@
 // Habits screen: frequency-based activities without hard time limits
 // (e.g. Personal research, Instrument practice).
 
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/services/habit_schedule_service.dart';
@@ -21,7 +23,7 @@ class HabitsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final habitsAsync = ref.watch(activeHabitsProvider);
+    final habitsAsync = ref.watch(allHabitsProvider);
     final countsAsync = ref.watch(weeklyHabitCompletionsProvider);
     final habitDao = ref.watch(habitDaoProvider);
 
@@ -84,8 +86,10 @@ class HabitsScreen extends ConsumerWidget {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                   side: BorderSide(
-                    color: isDoneForWeek ? Colors.green.shade200 : const Color(0xFFE2E8F0),
-                    width: isDoneForWeek ? 1.5 : 1.0,
+                    color: !habit.isActive
+                        ? Colors.amber.shade200
+                        : (isDoneForWeek ? Colors.green.shade200 : const Color(0xFFE2E8F0)),
+                    width: (!habit.isActive || isDoneForWeek) ? 1.5 : 1.0,
                   ),
                 ),
                 child: Padding(
@@ -96,6 +100,32 @@ class HabitsScreen extends ConsumerWidget {
                       Row(
                         children: [
                           CategoryBadge(categorySlugOrName: habit.category),
+                          if (!habit.isActive) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.amber.shade400),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.pause_circle_outline, size: 14, color: Colors.amber.shade800),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Paused in Assistant',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.amber.shade900,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                           const Spacer(),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -122,6 +152,23 @@ class HabitsScreen extends ConsumerWidget {
                             ),
                           ),
                           IconButton(
+                            icon: Icon(
+                              habit.isActive ? Icons.toggle_on : Icons.toggle_off_outlined,
+                              size: 26,
+                              color: habit.isActive ? Colors.green : Colors.grey,
+                            ),
+                            tooltip: habit.isActive ? 'Active in Assistant (Click to pause)' : 'Paused in Assistant (Click to activate)',
+                            onPressed: () async {
+                              final updatedCompanion = habit.toCompanion(true).copyWith(
+                                isActive: Value(!habit.isActive),
+                                updatedAt: Value(DateTime.now().toUtc()),
+                              );
+                              await habitDao.updateHabit(updatedCompanion);
+                              ref.invalidate(allHabitsProvider);
+                              ref.invalidate(activeHabitsProvider);
+                            },
+                          ),
+                          IconButton(
                             icon: const Icon(Icons.settings_suggest_outlined, size: 20, color: Colors.purpleAccent),
                             tooltip: 'Default Weekly Schedule',
                             onPressed: () => HabitScheduleDialog.show(context, habit),
@@ -136,6 +183,7 @@ class HabitsScreen extends ConsumerWidget {
                             tooltip: 'Delete Habit',
                             onPressed: () async {
                               await habitDao.deleteHabit(habit.id);
+                              ref.invalidate(allHabitsProvider);
                               ref.invalidate(activeHabitsProvider);
                               ref.invalidate(weeklyHabitCompletionsProvider);
                             },

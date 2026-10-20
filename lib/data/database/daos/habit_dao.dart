@@ -18,6 +18,9 @@ class HabitDao extends DatabaseAccessor<AppDatabase> with _$HabitDaoMixin {
             ..where((h) => h.isDeleted.equals(false) & h.isActive.equals(true)))
           .get();
 
+  Future<List<Habit>> getAllHabits() =>
+      (select(habits)..where((h) => h.isDeleted.equals(false))).get();
+
   Future<Habit?> getHabitById(int id) =>
       (select(habits)..where((h) => h.id.equals(id))).getSingleOrNull();
 
@@ -25,6 +28,9 @@ class HabitDao extends DatabaseAccessor<AppDatabase> with _$HabitDaoMixin {
       (select(habits)
             ..where((h) => h.isDeleted.equals(false) & h.isActive.equals(true)))
           .watch();
+
+  Stream<List<Habit>> watchAllHabits() =>
+      (select(habits)..where((h) => h.isDeleted.equals(false))).watch();
 
   // ── HabitLog Queries ──────────────────────────────────────────────────────
 

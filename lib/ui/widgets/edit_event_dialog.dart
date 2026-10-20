@@ -766,7 +766,7 @@ class _EditEventDialogState extends ConsumerState<EditEventDialog> {
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Requires Preparation Block'),
-                  subtitle: const Text('Include in scheduler sidebar for exam / interview prep'),
+                  subtitle: const Text('Include in Schedule Assistant for exam / interview prep'),
                   value: _requiresPrep,
                   onChanged: (val) => setState(() => _requiresPrep = val),
                 ),

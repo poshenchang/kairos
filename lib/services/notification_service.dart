@@ -1,9 +1,14 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:kairos/data/database/app_database.dart';
+import 'package:kairos/data/repositories/event_repository.dart';
+import 'package:kairos/services/platform_notification/notification_bridge.dart';
+import 'package:kairos/services/settings_service.dart';
+import 'package:kairos/services/timezone_service.dart';
 
 class NotificationService {
   static final NotificationService instance = NotificationService._();
@@ -12,13 +17,17 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
   bool _isInitialized = false;
 
+  Timer? _reminderTimer;
+  final Set<String> _notifiedEventKeys = {};
+
   Future<void> initialize() async {
     if (_isInitialized) return;
 
     tz.initializeTimeZones();
 
-    const linuxSettings = LinuxInitializationSettings(
+    final linuxSettings = LinuxInitializationSettings(
       defaultActionName: 'Open Kairos',
+      defaultIcon: AssetsLinuxIcon('assets/icon/app_icon.png'),
     );
 
     const darwinSettings = DarwinInitializationSettings(
@@ -27,19 +36,21 @@ class NotificationService {
       requestSoundPermission: true,
     );
 
-    const initSettings = InitializationSettings(
+    final initSettings = InitializationSettings(
       linux: linuxSettings,
       iOS: darwinSettings,
       macOS: darwinSettings,
     );
 
     try {
-      await _plugin.initialize(
-        settings: initSettings,
-        onDidReceiveNotificationResponse: (details) {
-          debugPrint('Notification clicked: ${details.payload}');
-        },
-      );
+      if (!kIsWeb) {
+        await _plugin.initialize(
+          settings: initSettings,
+          onDidReceiveNotificationResponse: (details) {
+            debugPrint('Notification clicked: ${details.payload}');
+          },
+        );
+      }
       _isInitialized = true;
     } catch (e) {
       debugPrint('Failed to initialize NotificationService: $e');
@@ -47,8 +58,9 @@ class NotificationService {
   }
 
   NotificationDetails _buildDetails() {
-    const linuxDetails = LinuxNotificationDetails(
+    final linuxDetails = LinuxNotificationDetails(
       urgency: LinuxNotificationUrgency.normal,
+      icon: AssetsLinuxIcon('assets/icon/app_icon.png'),
     );
 
     const darwinDetails = DarwinNotificationDetails(
@@ -57,11 +69,119 @@ class NotificationService {
       presentSound: true,
     );
 
-    return const NotificationDetails(
+    return NotificationDetails(
       linux: linuxDetails,
       iOS: darwinDetails,
       macOS: darwinDetails,
     );
+  }
+
+  Future<String> requestPermission() => requestPlatformNotificationPermission();
+  String getPermissionStatus() => getPlatformNotificationPermission();
+
+  void startReminderWatcher({
+    required AppDatabase db,
+    required SettingsState settings,
+    required EventRepository eventRepo,
+  }) {
+    _reminderTimer?.cancel();
+    _checkUpcomingReminders(db: db, settings: settings, eventRepo: eventRepo);
+    _reminderTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      _checkUpcomingReminders(db: db, settings: settings, eventRepo: eventRepo);
+    });
+  }
+
+  Future<void> _checkUpcomingReminders({
+    required AppDatabase db,
+    required SettingsState settings,
+    required EventRepository eventRepo,
+  }) async {
+    try {
+      final now = TimezoneService.instance.activeNow(settings);
+      final rangeStart = now.subtract(const Duration(minutes: 5));
+      final rangeEnd = now.add(const Duration(hours: 24));
+
+      final events = await eventRepo.getExpandedEventsInRange(
+        TimezoneService.instance.fromActiveTime(rangeStart, settings),
+        TimezoneService.instance.fromActiveTime(rangeEnd, settings),
+        settings,
+      );
+
+      for (final event in events) {
+        if (event.isDeleted) continue;
+        final source = event.autoScheduleSource;
+        if (source != null && source.contains('notify:none')) continue;
+
+        final isReminder = event.eventType == 'reminder';
+        final isDerived = event.isAutoScheduled ||
+            (source != null &&
+                (source.startsWith('habit:') ||
+                    source.startsWith('task:') ||
+                    source.startsWith('prep:')));
+
+        int? offsetMinutes;
+        if (source != null) {
+          final match = RegExp(r'notify:(\d+)').firstMatch(source);
+          if (match != null) {
+            offsetMinutes = int.tryParse(match.group(1)!);
+          }
+        }
+
+        if (offsetMinutes == null) {
+          if (isReminder || isDerived) {
+            offsetMinutes = 0;
+          } else {
+            continue;
+          }
+        }
+
+        final notifyTime = event.startTime.subtract(Duration(minutes: offsetMinutes));
+        final diffSec = notifyTime.difference(DateTime.now()).inSeconds;
+
+        // Due window: within past 90 seconds (missed) or coming up within next 30 seconds
+        if (diffSec >= -90 && diffSec <= 30) {
+          final key = '${event.id}_${event.startTime.toIso8601String()}_$offsetMinutes';
+          if (!_notifiedEventKeys.contains(key)) {
+            _notifiedEventKeys.add(key);
+
+            String title;
+            String body;
+            if (isReminder) {
+              title = 'Reminder';
+              body = 'Reminder: ${event.title}';
+            } else if (source != null && source.startsWith('habit:')) {
+              title = 'Habit Session';
+              body = offsetMinutes == 0
+                  ? 'Time for your habit: ${event.title}'
+                  : 'Habit session in $offsetMinutes min: ${event.title}';
+            } else if (source != null && (source.startsWith('task:') || source.contains(':subtask:'))) {
+              title = 'Task Session';
+              body = offsetMinutes == 0
+                  ? 'Time to focus on: ${event.title}'
+                  : 'Task session in $offsetMinutes min: ${event.title}';
+            } else if (source != null && source.contains('prep:')) {
+              title = 'Prep / Warmup Session';
+              body = offsetMinutes == 0
+                  ? 'Time to prepare for: ${event.title}'
+                  : 'Prep session in $offsetMinutes min: ${event.title}';
+            } else {
+              title = 'Upcoming Event';
+              body = offsetMinutes == 0
+                  ? 'Event starting now: ${event.title}'
+                  : 'Event starting in $offsetMinutes min: ${event.title}';
+            }
+
+            await showNotification(
+              id: event.id,
+              title: title,
+              body: body,
+            );
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Reminder watcher check error: $e');
+    }
   }
 
   Future<void> showNotification({
@@ -70,18 +190,25 @@ class NotificationService {
     required String body,
     String? payload,
   }) async {
-    if (!_isInitialized) await initialize();
-
+    // 1. Native platform bridge (Linux notify-send / Web HTML5 Notification)
     try {
-      await _plugin.show(
-        id: id,
-        title: title,
-        body: body,
-        notificationDetails: _buildDetails(),
-        payload: payload,
-      );
-    } catch (e) {
-      debugPrint('Error displaying notification: $e');
+      await showPlatformNotification(title: title, body: body);
+    } catch (_) {}
+
+    // 2. Also dispatch via flutter_local_notifications on supported platforms
+    if (!kIsWeb) {
+      if (!_isInitialized) await initialize();
+      try {
+        await _plugin.show(
+          id: id,
+          title: title,
+          body: body,
+          notificationDetails: _buildDetails(),
+          payload: payload,
+        );
+      } catch (e) {
+        debugPrint('Error displaying notification via plugin: $e');
+      }
     }
   }
 

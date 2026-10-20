@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS public.habits (
     max_session_minutes INT DEFAULT 60,
     days_filter TEXT DEFAULT 'all',
     is_active BOOLEAN DEFAULT TRUE,
+    default_schedule TEXT,
     is_deleted BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -126,6 +127,7 @@ CREATE TABLE IF NOT EXISTS public.holidays (
 );
 
 ALTER TABLE public.habit_logs ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.habits ADD COLUMN IF NOT EXISTS default_schedule TEXT;
 
 -- Enable Row Level Security and allow read/write with Publishable Key
 ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
@@ -444,8 +446,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               title: const Text('Push & Desktop Notifications', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
               subtitle: const Text('Receive alerts for upcoming deadlines, exam prep sessions, and habits (Linux DBus & iOS).', style: TextStyle(fontSize: 12, color: Colors.grey)),
               value: settings.notificationsEnabled,
-              onChanged: (val) {
+              onChanged: (val) async {
                 ref.read(settingsNotifierProvider.notifier).setNotificationsEnabled(val);
+                if (val) {
+                  await NotificationService.instance.requestPermission();
+                }
               },
             ),
             const Divider(height: 16),
@@ -462,21 +467,39 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
 
             const SizedBox(height: 8),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.notifications_active, size: 16),
-              label: const Text('Send Test Notification'),
-              onPressed: () async {
-                await NotificationService.instance.showNotification(
-                  id: 9999,
-                  title: 'Kairos Notification Test',
-                  body: 'Desktop & Push notifications are working perfectly on your device!',
-                );
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Test notification dispatched!')),
-                  );
-                }
-              },
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.security, size: 16),
+                  label: const Text('Grant Browser / OS Permission'),
+                  onPressed: () async {
+                    final status = await NotificationService.instance.requestPermission();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Notification permission: $status')),
+                      );
+                    }
+                  },
+                ),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.notifications_active, size: 16),
+                  label: const Text('Send Test Notification'),
+                  onPressed: () async {
+                    await NotificationService.instance.showNotification(
+                      id: 9999,
+                      title: 'Kairos Notification Test',
+                      body: 'Desktop & Push notifications are working perfectly on your device!',
+                    );
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Test notification dispatched!')),
+                      );
+                    }
+                  },
+                ),
+              ],
             ),
             const Divider(height: 24),
             const Text('Default Calendar Display', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
@@ -1703,7 +1726,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       builder: (dialogContext) => AlertDialog(
                         title: const Text('Clear All Events & Tasks?'),
                         content: const Text(
-                          'This will permanently delete all existing events, auto-scheduled blocks, tasks, and habit logs. Your categories will remain intact so you have a clean, fresh calendar.',
+                          'This will permanently delete all existing events, assistant-scheduled blocks, tasks, and habit logs. Your categories will remain intact so you have a clean, fresh calendar.',
                         ),
                         actions: [
                           TextButton(
@@ -1838,7 +1861,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       child: ListTile(
         leading: const Icon(Icons.school, color: Colors.blueAccent, size: 30),
         title: const Text('Kairos Guide & Tutorial', style: TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: const Text('Review tips for auto-scheduling, frequency habits, and transit blocks'),
+        subtitle: const Text('Review tips for Schedule Assistant, frequency habits, and transit blocks'),
         trailing: const Icon(Icons.chevron_right),
         onTap: () => HelpGuideDialog.show(context),
       ),

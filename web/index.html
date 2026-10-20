@@ -33,6 +33,38 @@
 
   <title>Kairos - Smart Calendar</title>
   <link rel="manifest" href="manifest.json">
+  <script>
+    window.kairosShowNotification = function(title, body) {
+      try {
+        if (!("Notification" in window)) return false;
+        if (Notification.permission === "granted") {
+          new Notification(title, {
+            body: body,
+            icon: "icons/Icon-192.png",
+            badge: "favicon.png"
+          });
+          return true;
+        }
+      } catch (e) {
+        console.error("Kairos notification error:", e);
+      }
+      return false;
+    };
+
+    window.kairosRequestPermission = function() {
+      try {
+        if (!("Notification" in window)) return Promise.resolve("unsupported");
+        return Notification.requestPermission();
+      } catch (e) {
+        return Promise.resolve("error");
+      }
+    };
+
+    window.kairosGetPermission = function() {
+      if (!("Notification" in window)) return "unsupported";
+      return Notification.permission;
+    };
+  </script>
 </head>
 <body>
   <!--

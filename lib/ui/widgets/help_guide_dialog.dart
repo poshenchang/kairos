@@ -78,10 +78,10 @@ class HelpGuideDialog extends StatelessWidget {
                     context: context,
                     icon: Icons.auto_awesome,
                     iconColor: Colors.purpleAccent,
-                    title: '2. Auto-Preparation Blocks',
+                    title: '2. Preparation Blocks',
                     description:
                         '• When scheduling an Exam, Interview, or Presentation, toggle "Requires Preparation Block" and choose desired prep time (e.g. 90m).\n'
-                        '• The Auto-Scheduler will find open gaps in the days leading up to the event and insert study/prep blocks automatically!',
+                        '• The Schedule Assistant will help you allocate and place dedicated prep blocks in the days leading up to the event!',
                   ),
                   const SizedBox(height: 16),
                   _buildSection(

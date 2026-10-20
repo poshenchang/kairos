@@ -92,6 +92,7 @@ class _EditHabitDialogState extends ConsumerState<EditHabitDialog> {
 
     await habitDao.updateHabit(updatedCompanion);
 
+    ref.invalidate(allHabitsProvider);
     ref.invalidate(activeHabitsProvider);
     ref.invalidate(weeklyHabitCompletionsProvider);
 
@@ -208,7 +209,7 @@ class _EditHabitDialogState extends ConsumerState<EditHabitDialog> {
                       SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Daily Habit: Auto-scheduler will insert 1 session every single day into open gaps.',
+                          'Daily Habit: Schedule assistant will insert 1 session every single day into open gaps.',
                           style: TextStyle(fontSize: 12, color: Colors.purple, fontWeight: FontWeight.w600),
                         ),
                       ),
@@ -236,7 +237,7 @@ class _EditHabitDialogState extends ConsumerState<EditHabitDialog> {
               DropdownButtonFormField<String>(
                 initialValue: _preferredWindow,
                 decoration: const InputDecoration(
-                  labelText: 'Preferred Time Window for Auto-Scheduler',
+                  labelText: 'Preferred Time Window for Schedule Assistant',
                   border: OutlineInputBorder(),
                 ),
                 items: const [
@@ -302,8 +303,8 @@ class _EditHabitDialogState extends ConsumerState<EditHabitDialog> {
               const SizedBox(height: 14),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Habit Active in Auto-Scheduler', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                subtitle: const Text('When disabled, the scheduler will pause placing sessions for this habit.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                title: const Text('Habit Active in Schedule Assistant', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                subtitle: const Text('When disabled, the assistant will pause placing sessions for this habit.', style: TextStyle(fontSize: 12, color: Colors.grey)),
                 value: _isActive,
                 onChanged: (val) => setState(() => _isActive = val),
               ),

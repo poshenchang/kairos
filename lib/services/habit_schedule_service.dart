@@ -10,6 +10,7 @@ import 'package:drift/drift.dart' as drift;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:kairos/data/database/app_database.dart';
+import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/notification_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -64,28 +65,64 @@ class HabitDefaultSlot {
 }
 
 class HabitScheduleNotifier extends StateNotifier<Map<int, List<HabitDefaultSlot>>> {
-  HabitScheduleNotifier() : super({}) {
+  final Ref? _ref;
+
+  HabitScheduleNotifier([this._ref]) : super({}) {
     _load();
   }
 
-  Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_kHabitSchedulesKey);
-    if (raw == null || raw.isEmpty) return;
+  Future<void> reload() => _load();
 
+  Future<void> _load() async {
+    final map = <int, List<HabitDefaultSlot>>{};
+
+    // 1. Load from DB
+    if (_ref != null) {
+      try {
+        final db = _ref!.read(appDatabaseProvider);
+        final habits = await (db.select(db.habits)..where((h) => h.isDeleted.equals(false))).get();
+        for (final h in habits) {
+          if (h.defaultSchedule != null && h.defaultSchedule!.isNotEmpty) {
+            try {
+              final list = jsonDecode(h.defaultSchedule!) as List<dynamic>;
+              map[h.id] = list
+                  .map((item) => HabitDefaultSlot.fromJson(item as Map<String, dynamic>))
+                  .toList();
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 2. Fallback to SharedPreferences (migrate local legacy templates to DB)
     try {
-      final decoded = jsonDecode(raw) as Map<String, dynamic>;
-      final map = <int, List<HabitDefaultSlot>>{};
-      for (final entry in decoded.entries) {
-        final habitId = int.tryParse(entry.key);
-        if (habitId != null && entry.value is List) {
-          map[habitId] = (entry.value as List)
-              .map((item) => HabitDefaultSlot.fromJson(item as Map<String, dynamic>))
-              .toList();
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_kHabitSchedulesKey);
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw) as Map<String, dynamic>;
+        final db = _ref != null ? _ref!.read(appDatabaseProvider) : null;
+        for (final entry in decoded.entries) {
+          final habitId = int.tryParse(entry.key);
+          if (habitId != null && !map.containsKey(habitId) && entry.value is List) {
+            final slots = (entry.value as List)
+                .map((item) => HabitDefaultSlot.fromJson(item as Map<String, dynamic>))
+                .toList();
+            map[habitId] = slots;
+            // Write to DB so it syncs across devices
+            if (db != null) {
+              await (db.update(db.habits)..where((tbl) => tbl.id.equals(habitId))).write(
+                HabitsCompanion(
+                  defaultSchedule: drift.Value(jsonEncode(slots.map((s) => s.toJson()).toList())),
+                  updatedAt: drift.Value(DateTime.now().toUtc()),
+                ),
+              );
+            }
+          }
         }
       }
-      state = map;
     } catch (_) {}
+
+    state = map;
   }
 
   Future<void> _save() async {
@@ -109,6 +146,21 @@ class HabitScheduleNotifier extends StateNotifier<Map<int, List<HabitDefaultSlot
       updated[habitId] = slots;
     }
     state = updated;
+
+    // Persist to DB for multi-device sync
+    if (_ref != null) {
+      try {
+        final db = _ref!.read(appDatabaseProvider);
+        final jsonStr = slots.isEmpty ? null : jsonEncode(slots.map((s) => s.toJson()).toList());
+        await (db.update(db.habits)..where((tbl) => tbl.id.equals(habitId))).write(
+          HabitsCompanion(
+            defaultSchedule: drift.Value(jsonStr),
+            updatedAt: drift.Value(DateTime.now().toUtc()),
+          ),
+        );
+      } catch (_) {}
+    }
+
     await _save();
   }
 
@@ -217,5 +269,5 @@ class HabitScheduleNotifier extends StateNotifier<Map<int, List<HabitDefaultSlot
 
 final habitScheduleProvider =
     StateNotifierProvider<HabitScheduleNotifier, Map<int, List<HabitDefaultSlot>>>(
-  (ref) => HabitScheduleNotifier(),
+  (ref) => HabitScheduleNotifier(ref),
 );
