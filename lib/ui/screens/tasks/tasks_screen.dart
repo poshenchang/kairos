@@ -133,7 +133,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                 final now = TimezoneService.instance.activeNow(settings);
 
                 return ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  // Extra bottom padding so the FAB never covers the last card
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 88),
                   itemCount: tasks.length,
                   itemBuilder: (context, index) {
                     final task = tasks[index];
@@ -158,6 +159,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
   }
 }
 
+enum _TaskAction { edit, delete }
+
 class _TaskCardWithSubtasks extends ConsumerStatefulWidget {
   final Task task;
   final DateTime now;
@@ -175,7 +178,7 @@ class _TaskCardWithSubtasks extends ConsumerStatefulWidget {
 
 class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
   final TextEditingController _subtaskCtrl = TextEditingController();
-  bool _isExpanded = true;
+  bool? _isExpanded;
   bool _showAddSubtask = false;
 
   @override
@@ -194,6 +197,9 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
     final isUrgent = hoursUntil <= 24 && !task.isCompleted;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    // Subtasks start collapsed on phones to keep the list scannable
+    final isExpanded = _isExpanded ?? !isMobile;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -243,32 +249,46 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Row(
+                      // Wrap (not Row) so metadata flows onto a second line on narrow screens
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           CategoryBadge(categorySlugOrName: task.category, compact: true),
-                          const SizedBox(width: 8),
-                          Icon(
-                            Icons.alarm,
-                            size: 13,
-                            color: isOverdue ? Colors.red : Colors.grey,
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.alarm,
+                                size: 13,
+                                color: isOverdue ? Colors.red : Colors.grey,
+                              ),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  DateFormat('MMM d, HH:mm').format(activeDue),
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: (isOverdue || isUrgent) ? FontWeight.bold : FontWeight.normal,
+                                    color: isOverdue
+                                        ? Colors.red
+                                        : (isUrgent ? Colors.orange.shade800 : Colors.grey),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 4),
-                          Text(
-                            DateFormat('MMM d, HH:mm').format(activeDue),
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: (isOverdue || isUrgent) ? FontWeight.bold : FontWeight.normal,
-                              color: isOverdue
-                                  ? Colors.red
-                                  : (isUrgent ? Colors.orange.shade800 : Colors.grey),
+                          if (task.isRecurring)
+                            const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.repeat, size: 12, color: Colors.grey),
+                                SizedBox(width: 2),
+                                Text('Weekly', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                              ],
                             ),
-                          ),
-                          if (task.isRecurring) ...[
-                            const SizedBox(width: 8),
-                            const Icon(Icons.repeat, size: 12, color: Colors.grey),
-                            const SizedBox(width: 2),
-                            const Text('Weekly', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                          ],
                         ],
                       ),
                       if (task.description != null && task.description!.isNotEmpty)
@@ -285,29 +305,52 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
                 IconButton(
                   icon: const Icon(Icons.timer_outlined, color: Colors.blueAccent),
                   tooltip: 'Start Focus Timer (25m)',
-                  onPressed: () {
-                    FocusTimerDialog.show(
-                      context,
-                      title: task.title,
-                      category: task.category,
-                      defaultMinutes: 25,
-                    );
-                  },
+                  onPressed: _startFocus,
                 ),
-                IconButton(
-                  icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.blueGrey),
-                  tooltip: 'Edit Task',
-                  onPressed: () => EditTaskDialog.show(context, task),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, size: 18, color: Colors.grey),
-                  tooltip: 'Delete Task',
-                  onPressed: () async {
-                    await widget.tasksDao.deleteTask(task.id);
-                    ref.invalidate(dashboardTasksProvider);
-                    ref.invalidate(incompleteTasksStreamProvider);
-                  },
-                ),
+                // On phones, Edit/Delete collapse into an overflow menu to free up width for the title
+                if (isMobile)
+                  PopupMenuButton<_TaskAction>(
+                    icon: const Icon(Icons.more_vert, color: Colors.grey),
+                    tooltip: 'More actions',
+                    onSelected: (action) {
+                      switch (action) {
+                        case _TaskAction.edit:
+                          EditTaskDialog.show(context, task);
+                        case _TaskAction.delete:
+                          _deleteTask();
+                      }
+                    },
+                    itemBuilder: (context) => const [
+                      PopupMenuItem(
+                        value: _TaskAction.edit,
+                        child: ListTile(
+                          leading: Icon(Icons.edit_outlined),
+                          title: Text('Edit'),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: _TaskAction.delete,
+                        child: ListTile(
+                          leading: Icon(Icons.delete_outline, color: Colors.red),
+                          title: Text('Delete', style: TextStyle(color: Colors.red)),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ),
+                    ],
+                  )
+                else ...[
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.blueGrey),
+                    tooltip: 'Edit Task',
+                    onPressed: () => EditTaskDialog.show(context, task),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, size: 18, color: Colors.grey),
+                    tooltip: 'Delete Task',
+                    onPressed: _deleteTask,
+                  ),
+                ],
               ],
             ),
 
@@ -345,14 +388,14 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
                             style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold),
                           ),
                           IconButton(
-                            icon: Icon(_isExpanded ? Icons.expand_less : Icons.expand_more, size: 18),
-                            onPressed: () => setState(() => _isExpanded = !_isExpanded),
+                            icon: Icon(isExpanded ? Icons.expand_less : Icons.expand_more, size: 18),
+                            onPressed: () => setState(() => _isExpanded = !isExpanded),
                             padding: EdgeInsets.zero,
                             constraints: const BoxConstraints(),
                           ),
                         ],
                       ),
-                      if (_isExpanded) ...[
+                      if (isExpanded) ...[
                         const SizedBox(height: 4),
                         ...subtasks.map((st) {
                           return Padding(
@@ -455,6 +498,21 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
         ),
       ),
     );
+  }
+
+  void _startFocus() {
+    FocusTimerDialog.show(
+      context,
+      title: widget.task.title,
+      category: widget.task.category,
+      defaultMinutes: 25,
+    );
+  }
+
+  Future<void> _deleteTask() async {
+    await widget.tasksDao.deleteTask(widget.task.id);
+    ref.invalidate(dashboardTasksProvider);
+    ref.invalidate(incompleteTasksStreamProvider);
   }
 
   Future<void> _addSubtask() async {

@@ -437,6 +437,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     WidgetRef ref,
     SettingsState settings,
   ) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -509,21 +511,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             const Text('Choose your default view for the calendar tab (Timetable schedule grid is set as default).', style: TextStyle(fontSize: 12, color: Colors.grey)),
             const SizedBox(height: 10),
             SegmentedButton<String>(
-              segments: const [
+              // On phones, drop icons + checkmark so three labels fit without breaking mid-word
+              showSelectedIcon: !isMobile,
+              segments: [
                 ButtonSegment(
                   value: 'timetable',
-                  icon: Icon(Icons.calendar_view_week, size: 16),
-                  label: Text('Timetable'),
+                  icon: isMobile ? null : const Icon(Icons.calendar_view_week, size: 16),
+                  label: const Text('Timetable'),
                 ),
                 ButtonSegment(
                   value: 'list',
-                  icon: Icon(Icons.view_agenda, size: 16),
-                  label: Text('Agenda'),
+                  icon: isMobile ? null : const Icon(Icons.view_agenda, size: 16),
+                  label: const Text('Agenda'),
                 ),
                 ButtonSegment(
                   value: 'all',
-                  icon: Icon(Icons.category, size: 16),
-                  label: Text('All Events'),
+                  icon: isMobile ? null : const Icon(Icons.category, size: 16),
+                  label: const Text('All Events'),
                 ),
               ],
               selected: {settings.calendarViewMode == 'all' ? 'all' : (settings.calendarViewMode == 'list' ? 'list' : 'timetable')},
@@ -536,7 +540,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               children: [
                 Icon(Icons.calendar_today, size: 16, color: Colors.blueAccent),
                 SizedBox(width: 8),
-                Text('Week Start: Sunday (Default configured)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                Expanded(
+                  child: Text('Week Start: Sunday (Default configured)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                ),
               ],
             ),
           ],
@@ -560,9 +566,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               children: [
                 Icon(Icons.schedule, size: 20, color: theme.colorScheme.primary),
                 const SizedBox(width: 8),
-                const Text(
-                  'Timezone & Schedule Alignment',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                const Expanded(
+                  child: Text(
+                    'Timezone & Schedule Alignment',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  ),
                 ),
               ],
             ),
