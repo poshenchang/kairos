@@ -34,20 +34,48 @@ class KairosApp extends ConsumerStatefulWidget {
   ConsumerState<KairosApp> createState() => _KairosAppState();
 }
 
-class _KairosAppState extends ConsumerState<KairosApp> {
+class _KairosAppState extends ConsumerState<KairosApp> with WidgetsBindingObserver {
   Timer? _suggestionTimer;
+  DateTime? _lastResumeSync;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _bootstrapData();
     _startHabitMonitoring();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _suggestionTimer?.cancel();
     super.dispose();
+  }
+
+  // Coming back to the app (switching from another device, unlocking the phone):
+  // pull remote changes right away instead of waiting for the 15-minute timer.
+  @override
+  Future<void> didChangeAppLifecycleState(AppLifecycleState state) async {
+    if (state != AppLifecycleState.resumed) return;
+
+    // Desktop fires `resumed` on every window focus change, so throttle.
+    final now = DateTime.now();
+    if (_lastResumeSync != null && now.difference(_lastResumeSync!) < const Duration(minutes: 1)) return;
+    _lastResumeSync = now;
+
+    if (ref.read(settingsNotifierProvider).isSupabaseConfigured) {
+      await ref.read(supabaseSyncServiceProvider.notifier).syncNow();
+    }
+    if (!mounted) return;
+
+    // Event providers are one-shot queries, so refresh them to pick up pulled
+    // changes (and a day rollover while the app was in the background).
+    ref.invalidate(todayEventsProvider);
+    ref.invalidate(selectedDateEventsProvider);
+    ref.invalidate(weekEventsProvider);
+    ref.invalidate(holidaysForDateProvider);
+    ref.invalidate(dashboardTasksProvider);
   }
 
   void _startHabitMonitoring() {
