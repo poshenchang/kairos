@@ -175,6 +175,22 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO anon, authent
 NOTIFY pgrst, 'reload schema';
 ''';
 
+enum _SettingsSection {
+  appearance('Appearance', 'Theme mode and color palette', Icons.palette_outlined),
+  notifications('Notifications & Calendar', 'Alerts, habit suggestions, default calendar view', Icons.notifications_active_outlined),
+  timezone('Timezone', 'Auto-detect or pin a fixed timezone', Icons.schedule_outlined),
+  holidays('Holidays & Breaks', 'Days that pause classes and routines', Icons.beach_access_outlined),
+  sync('Cloud Sync', 'Supabase connection and sync status', Icons.cloud_sync_outlined),
+  data('Data Management', 'Clear events, tasks, or categories', Icons.folder_delete_outlined),
+  about('About & Help', 'Version info and student guide', Icons.info_outline);
+
+  const _SettingsSection(this.title, this.subtitle, this.icon);
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+}
+
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
@@ -183,6 +199,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  _SettingsSection? _openSection;
   final _supabaseUrlController = TextEditingController();
   final _supabaseKeyController = TextEditingController();
 
@@ -203,75 +220,92 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final currentMode = ref.watch(themeModeProvider);
-    final currentPalette = ref.watch(themePaletteProvider);
-    final settings = ref.watch(settingsNotifierProvider);
-    final holidayDao = ref.watch(holidayDaoProvider);
+    final isWide = MediaQuery.sizeOf(context).width >= 900;
+    // Wide screens always show a section next to the list
+    final open = _openSection ?? (isWide ? _SettingsSection.appearance : null);
+    final showingDetailOnly = !isWide && open != null;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings', style: TextStyle(fontWeight: FontWeight.bold)),
-        actions: const [
-          AppGlobalActions(showAddButtons: false),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── 1. APPEARANCE & WHOLE PALETTES ─────────────────────────────
-            _buildSectionHeader('Appearance & Aesthetics', Icons.palette_outlined),
-            const SizedBox(height: 12),
-            _buildThemeModeCard(context, ref, currentMode),
-            const SizedBox(height: 16),
-            _buildPalettesCard(context, ref, currentPalette),
-
-            const SizedBox(height: 28),
-
-            // ── 2. NOTIFICATIONS & CALENDAR PREFERENCES ─────────────────────
-            _buildSectionHeader('Notifications & Calendar Preferences', Icons.notifications_active_outlined),
-            const SizedBox(height: 12),
-            _buildNotificationsAndPreferencesCard(context, ref, settings),
-
-            const SizedBox(height: 28),
-
-            // ── 3. TIMEZONE & REGIONAL CONFIGURATION ────────────────────────
-            _buildSectionHeader('Timezone & Regional Schedule', Icons.schedule_outlined),
-            const SizedBox(height: 12),
-            _buildTimezoneCard(context, ref, settings),
-
-            const SizedBox(height: 28),
-
-            // ── 4. HOLIDAYS & ACADEMIC BREAKS ───────────────────────────────
-            _buildSectionHeader('Academic Breaks & Holiday Blackouts', Icons.beach_access_outlined),
-            const SizedBox(height: 12),
-            _buildHolidaysCard(context, ref, holidayDao),
-
-            const SizedBox(height: 28),
-
-            // ── 4. CROSS-DEVICE SYNC & ACCOUNT (SUPABASE) ───────────────────
-            _buildSectionHeader('Cloud Sync & Account (Supabase)', Icons.cloud_sync_outlined),
-            const SizedBox(height: 12),
-            _buildSupabaseSyncCard(context),
-
-            const SizedBox(height: 28),
-
-            // ── 5. CALENDAR DATA MANAGEMENT ─────────────────────────────────
-            _buildSectionHeader('Calendar & Data Management', Icons.folder_delete_outlined),
-            const SizedBox(height: 12),
-            _buildDataManagementCard(context, ref),
-
-            const SizedBox(height: 28),
-
-            // ── 6. ABOUT & TUTORIAL ─────────────────────────────────────────
-            _buildSectionHeader('About & Help', Icons.info_outline),
-            const SizedBox(height: 12),
-            _buildAboutCard(context),
-
-            const SizedBox(height: 40),
+    return PopScope(
+      // Back (browser/Android) from a section returns to the section list
+      canPop: !showingDetailOnly,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) setState(() => _openSection = null);
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: showingDetailOnly ? BackButton(onPressed: () => setState(() => _openSection = null)) : null,
+          title: Text(
+            showingDetailOnly ? open.title : 'Settings',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          actions: const [
+            AppGlobalActions(showAddButtons: false),
           ],
         ),
+        body: isWide
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(width: 300, child: _buildSectionList(selected: open)),
+                  const VerticalDivider(width: 1),
+                  Expanded(child: _buildSectionPage(open!, showHeader: true)),
+                ],
+              )
+            : (open == null ? _buildSectionList() : _buildSectionPage(open)),
+      ),
+    );
+  }
+
+  Widget _buildSectionList({_SettingsSection? selected}) {
+    final theme = Theme.of(context);
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      children: [
+        for (final section in _SettingsSection.values)
+          ListTile(
+            leading: Icon(section.icon, color: theme.colorScheme.primary),
+            title: Text(section.title, style: const TextStyle(fontWeight: FontWeight.w600)),
+            subtitle: Text(section.subtitle, style: const TextStyle(fontSize: 12)),
+            trailing: selected == null ? const Icon(Icons.chevron_right) : null,
+            selected: section == selected,
+            selectedTileColor: theme.colorScheme.primary.withValues(alpha: 0.08),
+            onTap: () => setState(() => _openSection = section),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildSectionPage(_SettingsSection section, {bool showHeader = false}) {
+    final settings = ref.watch(settingsNotifierProvider);
+    final cards = switch (section) {
+      _SettingsSection.appearance => [
+          _buildThemeModeCard(context, ref, ref.watch(themeModeProvider)),
+          _buildPalettesCard(context, ref, ref.watch(themePaletteProvider)),
+        ],
+      _SettingsSection.notifications => [_buildNotificationsAndPreferencesCard(context, ref, settings)],
+      _SettingsSection.timezone => [_buildTimezoneCard(context, ref, settings)],
+      _SettingsSection.holidays => [_buildHolidaysCard(context, ref, ref.watch(holidayDaoProvider))],
+      _SettingsSection.sync => [_buildSupabaseSyncCard(context)],
+      _SettingsSection.data => [_buildDataManagementCard(context, ref)],
+      _SettingsSection.about => [_buildAboutCard(context)],
+    };
+
+    return SingleChildScrollView(
+      key: PageStorageKey(section),
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (showHeader) ...[
+            _buildSectionHeader(section.title, section.icon),
+            const SizedBox(height: 12),
+          ],
+          for (final (i, card) in cards.indexed) ...[
+            if (i > 0) const SizedBox(height: 16),
+            card,
+          ],
+          const SizedBox(height: 40),
+        ],
       ),
     );
   }
