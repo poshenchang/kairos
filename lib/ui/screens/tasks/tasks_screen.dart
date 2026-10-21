@@ -17,6 +17,7 @@ import 'package:kairos/ui/widgets/app_global_actions.dart';
 import 'package:kairos/ui/widgets/category_badge.dart';
 import 'package:kairos/ui/widgets/undo_snackbar.dart';
 import 'package:kairos/ui/widgets/task_form_sheet.dart';
+import 'package:kairos/ui/widgets/quick_add_sheet.dart';
 
 class TasksScreen extends ConsumerStatefulWidget {
   const TasksScreen({super.key});
@@ -157,7 +158,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => TaskFormSheet.show(context),
+        onPressed: () => QuickAddSheet.show(context),
         icon: const Icon(Icons.add),
         label: const Text('Add Task'),
       ),

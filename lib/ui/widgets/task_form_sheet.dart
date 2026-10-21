@@ -15,20 +15,47 @@ import 'package:kairos/services/settings_service.dart';
 import 'package:kairos/services/timezone_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 
+/// Prefilled values for a new task (e.g. from quick add).
+class TaskDraft {
+  final String title;
+
+  /// Wall-clock due date/time in the active timezone.
+  final DateTime? due;
+  final String? category;
+  final bool isRecurring;
+
+  const TaskDraft({this.title = '', this.due, this.category, this.isRecurring = false});
+}
+
+/// Weekly RRULE on [date]'s weekday, optionally ending via UNTIL or COUNT.
+String weeklyRrule(DateTime date, {DateTime? until, int? count}) {
+  const days = {1: 'MO', 2: 'TU', 3: 'WE', 4: 'TH', 5: 'FR', 6: 'SA', 7: 'SU'};
+  final base = 'FREQ=WEEKLY;BYDAY=${days[date.weekday]}';
+  if (until != null) {
+    final u = '${until.year}${until.month.toString().padLeft(2, '0')}${until.day.toString().padLeft(2, '0')}T235959Z';
+    return '$base;UNTIL=$u';
+  }
+  if (count != null) return '$base;COUNT=$count';
+  return base;
+}
+
 class TaskFormSheet extends ConsumerStatefulWidget {
   /// The task being edited, or null to create a new one.
   final Task? task;
 
-  const TaskFormSheet({super.key, this.task});
+  /// Starting values when creating a task; ignored when editing.
+  final TaskDraft? draft;
 
-  static Future<void> show(BuildContext context, {Task? task}) {
+  const TaskFormSheet({super.key, this.task, this.draft});
+
+  static Future<void> show(BuildContext context, {Task? task, TaskDraft? draft}) {
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (_) => TaskFormSheet(task: task),
+      builder: (_) => TaskFormSheet(task: task, draft: draft),
     );
   }
 
@@ -73,7 +100,7 @@ class _TaskFormSheetState extends ConsumerState<TaskFormSheet> {
   void initState() {
     super.initState();
     final t = widget.task;
-    _titleController = TextEditingController(text: t?.title ?? '');
+    _titleController = TextEditingController(text: t?.title ?? widget.draft?.title ?? '');
     _descController = TextEditingController(text: t?.description ?? '');
 
     if (t == null) {
@@ -84,6 +111,15 @@ class _TaskFormSheetState extends ConsumerState<TaskFormSheet> {
       _estimatedMinutes = defaults.lastTaskEstimatedMinutes ?? 120;
       _priority = 3;
       _isRecurring = false;
+      final draft = widget.draft;
+      if (draft != null) {
+        if (draft.due != null) {
+          _dueDate = DateTime(draft.due!.year, draft.due!.month, draft.due!.day);
+          _dueTime = TimeOfDay(hour: draft.due!.hour, minute: draft.due!.minute);
+        }
+        _category = draft.category ?? _category;
+        _isRecurring = draft.isRecurring;
+      }
     } else {
       final activeDue = TimezoneService.instance.toActiveTime(t.dueDate, ref.read(settingsNotifierProvider));
       _dueDate = DateTime(activeDue.year, activeDue.month, activeDue.day);
@@ -134,15 +170,11 @@ class _TaskFormSheetState extends ConsumerState<TaskFormSheet> {
 
   String? _buildRrule() {
     if (!_isRecurring) return null;
-    final baseRule = 'FREQ=WEEKLY;BYDAY=${_dayToRruleCode(_dueDate.weekday)}';
-    if (_repeatEndMode == 'until_date' && _repeatUntilDate != null) {
-      final u = _repeatUntilDate!;
-      final uStr = '${u.year}${u.month.toString().padLeft(2, '0')}${u.day.toString().padLeft(2, '0')}T235959Z';
-      return '$baseRule;UNTIL=$uStr';
-    } else if (_repeatEndMode == 'count') {
-      return '$baseRule;COUNT=$_repeatCount';
-    }
-    return baseRule;
+    return weeklyRrule(
+      _dueDate,
+      until: _repeatEndMode == 'until_date' ? _repeatUntilDate : null,
+      count: _repeatEndMode == 'count' ? _repeatCount : null,
+    );
   }
 
   Future<void> _save() async {
@@ -220,11 +252,6 @@ class _TaskFormSheetState extends ConsumerState<TaskFormSheet> {
     });
   }
 
-  String _dayToRruleCode(int weekday) {
-    const map = {1: 'MO', 2: 'TU', 3: 'WE', 4: 'TH', 5: 'FR', 6: 'SA', 7: 'SU'};
-    return map[weekday] ?? 'MO';
-  }
-
   String _formatDuration(int minutes) {
     final h = minutes ~/ 60;
     final m = minutes % 60;
@@ -274,7 +301,7 @@ class _TaskFormSheetState extends ConsumerState<TaskFormSheet> {
               const SizedBox(height: 12),
               TextFormField(
                 controller: _titleController,
-                autofocus: !_isEditing,
+                autofocus: !_isEditing && widget.draft == null,
                 decoration: const InputDecoration(
                   labelText: 'Title',
                   hintText: 'e.g. OS Project Submission, Essay Draft',

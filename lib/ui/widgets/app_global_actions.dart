@@ -14,7 +14,7 @@ import 'package:go_router/go_router.dart';
 import 'package:kairos/ui/theme/theme_provider.dart';
 import 'package:kairos/ui/widgets/add_event_dialog.dart';
 import 'package:kairos/ui/widgets/help_guide_dialog.dart';
-import 'package:kairos/ui/widgets/task_form_sheet.dart';
+import 'package:kairos/ui/widgets/quick_add_sheet.dart';
 
 class AppGlobalActions extends ConsumerWidget {
   final bool showAddButtons;
@@ -49,7 +49,7 @@ class AppGlobalActions extends ConsumerWidget {
           IconButton(
             tooltip: 'Add Task / Deadline',
             icon: const Icon(Icons.add_task),
-            onPressed: () => TaskFormSheet.show(context),
+            onPressed: () => QuickAddSheet.show(context),
           ),
           IconButton(
             tooltip: 'Add Calendar Event',

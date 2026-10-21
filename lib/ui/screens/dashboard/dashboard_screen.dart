@@ -20,6 +20,7 @@ import 'package:kairos/ui/widgets/log_habit_dialog.dart';
 import 'package:kairos/ui/widgets/app_global_actions.dart';
 import 'package:kairos/ui/widgets/task_form_sheet.dart';
 import 'package:kairos/ui/widgets/habit_form_sheet.dart';
+import 'package:kairos/ui/widgets/quick_add_sheet.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -310,7 +311,7 @@ class DashboardScreen extends ConsumerWidget {
             ),
             IconButton(
               icon: const Icon(Icons.add, size: 20),
-              onPressed: () => TaskFormSheet.show(context),
+              onPressed: () => QuickAddSheet.show(context),
             ),
           ],
         ),

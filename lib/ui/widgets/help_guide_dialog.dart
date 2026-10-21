@@ -92,7 +92,9 @@ class HelpGuideDialog extends StatelessWidget {
                     description:
                         '• One-Off Deadlines: Essays, report submissions, applications.\n'
                         '• Weekly Problem Sets: When marked as recurring, the dashboard ONLY shows the next upcoming instance, keeping your view clean and focused.\n'
-                        '• Visual Urgency: Red (Overdue), Orange (Due in <24h), Amber (Due in <72h).',
+                        '• Visual Urgency: Red (Overdue), Orange (Due in <24h), Amber (Due in <72h).\n'
+                        '• Quick Add: type "HW3 fri 5pm #school" (also tmr, oct 28, in 3 days, noon, weekly). The preview shows what was understood; tap × on a chip to keep that word in the title, or wrap text in "quotes".\n'
+                        '• Swipe a task right to complete it, left to delete it. Both can be undone.',
                   ),
                   const SizedBox(height: 16),
                   _buildSection(
