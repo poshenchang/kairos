@@ -5,7 +5,6 @@
 // - Category filters, overdue alerts, completion toggle
 // - Consistent top-right AppGlobalActions
 
-import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -30,6 +29,7 @@ class TasksScreen extends ConsumerStatefulWidget {
 class _TasksScreenState extends ConsumerState<TasksScreen> {
   String? _selectedCategory;
   bool _showCompleted = false;
+  final Set<int> _dismissedTaskIds = {};
 
   @override
   Widget build(BuildContext context) {
@@ -103,6 +103,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
 
                 var tasks = snapshot.data ?? [];
 
+                tasks = tasks.where((t) => !_dismissedTaskIds.contains(t.id)).toList();
+
                 // Filter by category
                 if (_selectedCategory != null) {
                   tasks = tasks.where((t) => t.category == _selectedCategory).toList();
@@ -139,9 +141,14 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                   itemBuilder: (context, index) {
                     final task = tasks[index];
                     return _TaskCardWithSubtasks(
+                      key: ValueKey(task.id),
                       task: task,
                       now: now,
                       tasksDao: tasksDao,
+                      onDismissed: (id) => setState(() => _dismissedTaskIds.add(id)),
+                      onRestored: (id) {
+                        if (mounted) setState(() => _dismissedTaskIds.remove(id));
+                      },
                     );
                   },
                 );
@@ -165,11 +172,18 @@ class _TaskCardWithSubtasks extends ConsumerStatefulWidget {
   final Task task;
   final DateTime now;
   final TaskDao tasksDao;
+  // A swiped-away Dismissible must leave the tree in the same frame, before the
+  // database stream catches up, so the list hides it locally until restored.
+  final ValueChanged<int> onDismissed;
+  final ValueChanged<int> onRestored;
 
   const _TaskCardWithSubtasks({
+    super.key,
     required this.task,
     required this.now,
     required this.tasksDao,
+    required this.onDismissed,
+    required this.onRestored,
   });
 
   @override
@@ -201,8 +215,8 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
     // Subtasks start collapsed on phones to keep the list scannable
     final isExpanded = _isExpanded ?? !isMobile;
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
+    final card = Card(
+      margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(
@@ -212,286 +226,356 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
           width: (isOverdue || isUrgent) ? 1.5 : 1.0,
         ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Task Main Row
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Checkbox(
-                  value: task.isCompleted,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                  onChanged: (val) async {
-                    if (val == true) {
-                      await ref.read(taskRepositoryProvider).completeTask(task.id);
-                    } else {
-                      await widget.tasksDao.updateTask(task.toCompanion(true).copyWith(isCompleted: const Value(false)));
-                    }
-                    ref.invalidate(dashboardTasksProvider);
-                    ref.invalidate(incompleteTasksStreamProvider);
-                  },
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        task.title,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                          decoration: task.isCompleted ? TextDecoration.lineThrough : null,
-                          color: task.isCompleted ? Colors.grey : null,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      // Wrap (not Row) so metadata flows onto a second line on narrow screens
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 4,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          CategoryBadge(categorySlugOrName: task.category, compact: true),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.alarm,
-                                size: 13,
-                                color: isOverdue ? Colors.red : Colors.grey,
-                              ),
-                              const SizedBox(width: 4),
-                              Flexible(
-                                child: Text(
-                                  DateFormat('MMM d, HH:mm').format(activeDue),
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: (isOverdue || isUrgent) ? FontWeight.bold : FontWeight.normal,
-                                    color: isOverdue
-                                        ? Colors.red
-                                        : (isUrgent ? Colors.orange.shade800 : Colors.grey),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          if (task.isRecurring)
-                            const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.repeat, size: 12, color: Colors.grey),
-                                SizedBox(width: 2),
-                                Text('Weekly', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                              ],
-                            ),
-                        ],
-                      ),
-                      if (task.description != null && task.description!.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4.0),
-                          child: Text(
-                            task.description!,
-                            style: const TextStyle(fontSize: 12, color: Colors.grey),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                // On phones, Edit/Delete collapse into an overflow menu to free up width for the title
-                if (isMobile)
-                  PopupMenuButton<_TaskAction>(
-                    icon: const Icon(Icons.more_vert, color: Colors.grey),
-                    tooltip: 'More actions',
-                    onSelected: (action) {
-                      switch (action) {
-                        case _TaskAction.edit:
-                          EditTaskDialog.show(context, task);
-                        case _TaskAction.delete:
-                          _deleteTask();
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => EditTaskDialog.show(context, task),
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Task Main Row
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Checkbox(
+                    value: task.isCompleted,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                    onChanged: (val) async {
+                      if (val == true) {
+                        await _completeTask();
+                      } else {
+                        await widget.tasksDao.markIncomplete(task.id);
+                        ref.invalidate(dashboardTasksProvider);
+                        ref.invalidate(incompleteTasksStreamProvider);
                       }
                     },
-                    itemBuilder: (context) => const [
-                      PopupMenuItem(
-                        value: _TaskAction.edit,
-                        child: ListTile(
-                          leading: Icon(Icons.edit_outlined),
-                          title: Text('Edit'),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                      ),
-                      PopupMenuItem(
-                        value: _TaskAction.delete,
-                        child: ListTile(
-                          leading: Icon(Icons.delete_outline, color: Colors.red),
-                          title: Text('Delete', style: TextStyle(color: Colors.red)),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                      ),
-                    ],
-                  )
-                else ...[
-                  IconButton(
-                    icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.blueGrey),
-                    tooltip: 'Edit Task',
-                    onPressed: () => EditTaskDialog.show(context, task),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, size: 18, color: Colors.grey),
-                    tooltip: 'Delete Task',
-                    onPressed: _deleteTask,
-                  ),
-                ],
-              ],
-            ),
-
-            // ── SUBTASKS SECTION ───────────────────────────────────────────
-            StreamBuilder<List<Subtask>>(
-              stream: widget.tasksDao.watchSubtasksForTask(task.id),
-              builder: (context, subSnapshot) {
-                final subtasks = subSnapshot.data ?? [];
-                final completedCount = subtasks.where((s) => s.isCompleted).length;
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (subtasks.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      // Progress Bar & Count
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(4),
-                              child: LinearProgressIndicator(
-                                value: subtasks.isEmpty ? 0 : (completedCount / subtasks.length),
-                                minHeight: 6,
-                                backgroundColor: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  completedCount == subtasks.length ? Colors.green : Colors.blueAccent,
-                                ),
-                              ),
-                            ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          task.title,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                            decoration: task.isCompleted ? TextDecoration.lineThrough : null,
+                            color: task.isCompleted ? Colors.grey : null,
                           ),
-                          const SizedBox(width: 10),
-                          Text(
-                            '$completedCount/${subtasks.length} subtasks',
-                            style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold),
-                          ),
-                          IconButton(
-                            icon: Icon(isExpanded ? Icons.expand_less : Icons.expand_more, size: 18),
-                            onPressed: () => setState(() => _isExpanded = !isExpanded),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                          ),
-                        ],
-                      ),
-                      if (isExpanded) ...[
+                        ),
                         const SizedBox(height: 4),
-                        ...subtasks.map((st) {
-                          return Padding(
-                            padding: const EdgeInsets.only(left: 20.0, top: 2.0),
-                            child: Row(
+                        // Wrap (not Row) so metadata flows onto a second line on narrow screens
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            CategoryBadge(categorySlugOrName: task.category, compact: true),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: Checkbox(
-                                    value: st.isCompleted,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
-                                    onChanged: (val) async {
-                                      await widget.tasksDao.toggleSubtask(st.id, val ?? false);
-                                    },
-                                  ),
+                                Icon(
+                                  Icons.alarm,
+                                  size: 13,
+                                  color: isOverdue ? Colors.red : Colors.grey,
                                 ),
-                                const SizedBox(width: 6),
-                                Expanded(
+                                const SizedBox(width: 4),
+                                Flexible(
                                   child: Text(
-                                    st.title,
+                                    DateFormat('MMM d, HH:mm').format(activeDue),
+                                    overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
-                                      fontSize: 13,
-                                      decoration: st.isCompleted ? TextDecoration.lineThrough : null,
-                                      color: st.isCompleted ? Colors.grey : null,
+                                      fontSize: 12,
+                                      fontWeight: (isOverdue || isUrgent) ? FontWeight.bold : FontWeight.normal,
+                                      color: isOverdue
+                                          ? Colors.red
+                                          : (isUrgent ? Colors.orange.shade800 : Colors.grey),
                                     ),
                                   ),
                                 ),
-                                IconButton(
-                                  icon: const Icon(Icons.close, size: 14, color: Colors.grey),
-                                  onPressed: () async {
-                                    await widget.tasksDao.deleteSubtask(st.id);
-                                  },
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
-                                ),
                               ],
                             ),
-                          );
-                        }),
+                            if (task.isRecurring)
+                              const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.repeat, size: 12, color: Colors.grey),
+                                  SizedBox(width: 2),
+                                  Text('Weekly', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                                ],
+                              ),
+                          ],
+                        ),
+                        if (task.description != null && task.description!.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4.0),
+                            child: Text(
+                              task.description!,
+                              style: const TextStyle(fontSize: 12, color: Colors.grey),
+                            ),
+                          ),
                       ],
-                    ],
+                    ),
+                  ),
+                  // On phones, Edit/Delete collapse into an overflow menu to free up width for the title
+                  if (isMobile)
+                    PopupMenuButton<_TaskAction>(
+                      icon: const Icon(Icons.more_vert, color: Colors.grey),
+                      tooltip: 'More actions',
+                      onSelected: (action) {
+                        switch (action) {
+                          case _TaskAction.edit:
+                            EditTaskDialog.show(context, task);
+                          case _TaskAction.delete:
+                            _deleteTask();
+                        }
+                      },
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(
+                          value: _TaskAction.edit,
+                          child: ListTile(
+                            leading: Icon(Icons.edit_outlined),
+                            title: Text('Edit'),
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: _TaskAction.delete,
+                          child: ListTile(
+                            leading: Icon(Icons.delete_outline, color: Colors.red),
+                            title: Text('Delete', style: TextStyle(color: Colors.red)),
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ),
+                      ],
+                    )
+                  else ...[
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.blueGrey),
+                      tooltip: 'Edit Task',
+                      onPressed: () => EditTaskDialog.show(context, task),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, size: 18, color: Colors.grey),
+                      tooltip: 'Delete Task',
+                      onPressed: _deleteTask,
+                    ),
+                  ],
+                ],
+              ),
 
-                    // Inline "+ Add Subtask"
-                    if (_showAddSubtask) ...[
-                      const SizedBox(height: 8),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 20.0),
-                        child: Row(
+              // ── SUBTASKS SECTION ───────────────────────────────────────────
+              StreamBuilder<List<Subtask>>(
+                stream: widget.tasksDao.watchSubtasksForTask(task.id),
+                builder: (context, subSnapshot) {
+                  final subtasks = subSnapshot.data ?? [];
+                  final completedCount = subtasks.where((s) => s.isCompleted).length;
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (subtasks.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        // Progress Bar & Count
+                        Row(
                           children: [
                             Expanded(
-                              child: TextField(
-                                controller: _subtaskCtrl,
-                                autofocus: true,
-                                style: const TextStyle(fontSize: 13),
-                                decoration: const InputDecoration(
-                                  hintText: 'Subtask title (e.g. Read chapter 2, solve #3)...',
-                                  isDense: true,
-                                  contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                  border: OutlineInputBorder(),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(4),
+                                child: LinearProgressIndicator(
+                                  value: subtasks.isEmpty ? 0 : (completedCount / subtasks.length),
+                                  minHeight: 6,
+                                  backgroundColor: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    completedCount == subtasks.length ? Colors.green : Colors.blueAccent,
+                                  ),
                                 ),
-                                onSubmitted: (_) => _addSubtask(),
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            ElevatedButton(
-                              onPressed: _addSubtask,
-                              style: ElevatedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              ),
-                              child: const Text('Add'),
+                            const SizedBox(width: 10),
+                            Text(
+                              '$completedCount/${subtasks.length} subtasks',
+                              style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.close, size: 18),
-                              onPressed: () => setState(() => _showAddSubtask = false),
+                              icon: Icon(isExpanded ? Icons.expand_less : Icons.expand_more, size: 18),
+                              onPressed: () => setState(() => _isExpanded = !isExpanded),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
                             ),
                           ],
                         ),
-                      ),
-                    ] else ...[
-                      Padding(
-                        padding: const EdgeInsets.only(left: 20.0, top: 4.0),
-                        child: TextButton.icon(
-                          icon: const Icon(Icons.add, size: 16),
-                          label: const Text('Add subtask', style: TextStyle(fontSize: 12)),
-                          style: TextButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            minimumSize: Size.zero,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        if (isExpanded) ...[
+                          const SizedBox(height: 4),
+                          ...subtasks.map((st) {
+                            return Padding(
+                              padding: const EdgeInsets.only(left: 20.0, top: 2.0),
+                              child: Row(
+                                children: [
+                                  SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: Checkbox(
+                                      value: st.isCompleted,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
+                                      onChanged: (val) async {
+                                        await widget.tasksDao.toggleSubtask(st.id, val ?? false);
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      st.title,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        decoration: st.isCompleted ? TextDecoration.lineThrough : null,
+                                        color: st.isCompleted ? Colors.grey : null,
+                                      ),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.close, size: 14, color: Colors.grey),
+                                    onPressed: () async {
+                                      await widget.tasksDao.deleteSubtask(st.id);
+                                    },
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                        ],
+                      ],
+
+                      // Inline "+ Add Subtask"
+                      if (_showAddSubtask) ...[
+                        const SizedBox(height: 8),
+                        Padding(
+                          padding: const EdgeInsets.only(left: 20.0),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _subtaskCtrl,
+                                  autofocus: true,
+                                  style: const TextStyle(fontSize: 13),
+                                  decoration: const InputDecoration(
+                                    hintText: 'Subtask title (e.g. Read chapter 2, solve #3)...',
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  onSubmitted: (_) => _addSubtask(),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              ElevatedButton(
+                                onPressed: _addSubtask,
+                                style: ElevatedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                ),
+                                child: const Text('Add'),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.close, size: 18),
+                                onPressed: () => setState(() => _showAddSubtask = false),
+                              ),
+                            ],
                           ),
-                          onPressed: () => setState(() => _showAddSubtask = true),
                         ),
-                      ),
+                      ] else ...[
+                        Padding(
+                          padding: const EdgeInsets.only(left: 20.0, top: 4.0),
+                          child: TextButton.icon(
+                            icon: const Icon(Icons.add, size: 16),
+                            label: const Text('Add subtask', style: TextStyle(fontSize: 12)),
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            onPressed: () => setState(() => _showAddSubtask = true),
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
-                );
-              },
-            ),
-          ],
+                  );
+                },
+              ),
+            ],
+          ),
         ),
       ),
+    );
+
+    // Swipe right to complete, left to delete (both offer UNDO)
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Dismissible(
+        key: ValueKey('task-${task.id}'),
+        direction: task.isCompleted ? DismissDirection.endToStart : DismissDirection.horizontal,
+        background: _swipeBackground(Icons.check, 'Complete', Colors.green, Alignment.centerLeft),
+        secondaryBackground: _swipeBackground(Icons.delete_outline, 'Delete', Colors.red, Alignment.centerRight),
+        confirmDismiss: (direction) async {
+          if (direction == DismissDirection.startToEnd) {
+            // Recurring tasks stay in the list (due date advances), so let the
+            // stream update the card rather than dismissing it.
+            await _completeTask();
+            return false;
+          }
+          return true;
+        },
+        onDismissed: (_) {
+          widget.onDismissed(task.id);
+          _deleteTask();
+        },
+        child: card,
+      ),
+    );
+  }
+
+  Widget _swipeBackground(IconData icon, String label, Color color, Alignment alignment) {
+    return Container(
+      alignment: alignment,
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.85),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white),
+          const SizedBox(width: 8),
+          Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _completeTask() async {
+    final container = ProviderScope.containerOf(context);
+    final dao = widget.tasksDao;
+    final original = widget.task;
+    void refresh() {
+      container.invalidate(dashboardTasksProvider);
+      container.invalidate(incompleteTasksStreamProvider);
+    }
+
+    await ref.read(taskRepositoryProvider).completeTask(original.id);
+    refresh();
+    if (!mounted) return;
+    showUndoSnackBar(
+      context,
+      message: 'Completed "${original.title}"',
+      onUndo: () async {
+        await dao.revertTask(original);
+        refresh();
+      },
     );
   }
 
@@ -505,11 +589,13 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
       container.invalidate(incompleteTasksStreamProvider);
     }
 
+    final onRestored = widget.onRestored;
     showUndoSnackBar(
       context,
       message: 'Deleted "${task.title}"',
       onUndo: () async {
         await dao.restoreTask(task.id);
+        onRestored(task.id);
         refresh();
       },
     );

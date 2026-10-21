@@ -6,7 +6,7 @@ import 'package:drift/drift.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/database/tables/tasks_table.dart';
 import 'package:kairos/data/database/tables/subtasks_table.dart';
-import 'package:kairos/data/database/daos/restore_timestamp.dart';
+import 'package:kairos/data/database/daos/undo_timestamp.dart';
 
 part 'task_dao.g.dart';
 
@@ -75,6 +75,25 @@ class TaskDao extends DatabaseAccessor<AppDatabase> with _$TaskDaoMixin {
   Future<bool> updateTask(TasksCompanion companion) =>
       update(tasks).replace(companion);
 
+  /// Unticks a completed task. See [undoTimestamp] for why the timestamp is bumped.
+  Future<int> markIncomplete(int id) => transaction(() async {
+        final row = await (select(tasks)..where((t) => t.id.equals(id))).getSingle();
+        return (update(tasks)..where((t) => t.id.equals(id))).write(TasksCompanion(
+          isCompleted: const Value(false),
+          completedAt: const Value(null),
+          updatedAt: Value(undoTimestamp(row.updatedAt)),
+        ));
+      });
+
+  /// Puts [original] back exactly as it was (undo of a completion, which for
+  /// recurring tasks also advanced the due date).
+  Future<bool> revertTask(Task original) => transaction(() async {
+        final current = await (select(tasks)..where((t) => t.id.equals(original.id))).getSingle();
+        return updateTask(original.toCompanion(true).copyWith(
+          updatedAt: Value(undoTimestamp(current.updatedAt)),
+        ));
+      });
+
   Future<int> markCompleted(int id) => (update(tasks)
         ..where((t) => t.id.equals(id)))
       .write(TasksCompanion(
@@ -95,12 +114,12 @@ class TaskDao extends DatabaseAccessor<AppDatabase> with _$TaskDaoMixin {
         updatedAt: Value(DateTime.now().toUtc()),
       ));
 
-  /// Reverses [deleteTask] (undo). See [restoreTimestamp] for why the timestamp is bumped.
+  /// Reverses [deleteTask] (undo). See [undoTimestamp] for why the timestamp is bumped.
   Future<int> restoreTask(int id) => transaction(() async {
         final row = await (select(tasks)..where((t) => t.id.equals(id))).getSingle();
         return (update(tasks)..where((t) => t.id.equals(id))).write(TasksCompanion(
           isDeleted: const Value(false),
-          updatedAt: Value(restoreTimestamp(row.updatedAt)),
+          updatedAt: Value(undoTimestamp(row.updatedAt)),
         ));
       });
 
