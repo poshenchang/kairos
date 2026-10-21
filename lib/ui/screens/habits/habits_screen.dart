@@ -139,6 +139,8 @@ class _HabitCard extends ConsumerWidget {
     final isDoneForWeek = completed >= target;
     final progressColor = isDoneForWeek ? Colors.green : (target == 7 ? Colors.purpleAccent : Colors.blueAccent);
     final defaultSlots = ref.watch(habitScheduleProvider)[habit.id] ?? [];
+    final streak = ref.watch(habitStreaksProvider)[habit.id] ?? 0;
+    final streakUnit = target >= 7 ? 'day' : 'week';
 
     final logButton = ElevatedButton.icon(
       icon: const Icon(Icons.check, size: 16),
@@ -338,9 +340,19 @@ class _HabitCard extends ConsumerWidget {
                         ),
                         const SizedBox(width: 10),
                         Text(
-                          target == 7 ? '🔥 $completed / 7 this week' : '$completed / $target this week',
+                          '$completed / $target this week',
                           style: TextStyle(color: progressColor, fontWeight: FontWeight.bold, fontSize: 12),
                         ),
+                        if (streak >= 2) ...[
+                          const SizedBox(width: 8),
+                          Tooltip(
+                            message: '$streak-$streakUnit streak',
+                            child: Text(
+                              '🔥 $streak${streakUnit[0]}',
+                              style: const TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.bold, fontSize: 12),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                     const SizedBox(height: 8),

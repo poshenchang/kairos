@@ -47,12 +47,17 @@ class CategoryBadge extends ConsumerWidget {
           children: [
             Text(emoji, style: const TextStyle(fontSize: 11)),
             const SizedBox(width: 4),
-            Text(
-              name,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: color,
+            // Truncate rather than overflow in tight spots (e.g. list tile subtitles)
+            Flexible(
+              child: Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: color,
+                ),
               ),
             ),
           ],
@@ -72,12 +77,16 @@ class CategoryBadge extends ConsumerWidget {
         children: [
           Text(emoji, style: const TextStyle(fontSize: 13)),
           const SizedBox(width: 6),
-          Text(
-            name,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: color,
+          Flexible(
+            child: Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
             ),
           ),
         ],

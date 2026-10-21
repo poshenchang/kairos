@@ -12,6 +12,8 @@ import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/settings_service.dart';
 import 'package:kairos/services/timezone_service.dart';
+import 'package:kairos/services/weekly_stats.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Emits [load]'s result now and again whenever any of [tables] changes.
 ///
@@ -165,6 +167,61 @@ final todayHabitCompletionsProvider = StreamProvider<Map<int, int>>((ref) {
   final end = TimezoneService.instance.fromActiveTime(endWall, settings);
   return dao.watchWeeklyCompletions(start, end);
 });
+
+/// Current streak per habit id (consecutive days for daily habits,
+/// consecutive on-target weeks otherwise). See [habitStreak].
+final habitStreaksProvider = Provider<Map<int, int>>((ref) {
+  final habits = ref.watch(allHabitsProvider).value ?? const [];
+  final logs = ref.watch(allHabitLogsStreamProvider).value ?? const [];
+  final settings = ref.watch(settingsNotifierProvider);
+  final now = TimezoneService.instance.activeNow(settings);
+
+  final logTimes = <int, List<DateTime>>{};
+  for (final l in logs) {
+    logTimes.putIfAbsent(l.habitId, () => []).add(TimezoneService.instance.toActiveTime(l.completedAt, settings));
+  }
+  return {for (final h in habits) h.id: habitStreak(h, logTimes[h.id] ?? const [], now)};
+});
+
+// ── Weekly review ───────────────────────────────────────────────────────────
+
+/// Last week's summary, shown on Sundays and Mondays only (null otherwise).
+final weeklyReviewProvider = StreamProvider<WeeklyReview?>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  final settings = ref.watch(settingsNotifierProvider);
+  return _watchTables(db, [db.tasks, db.habits, db.habitLogs], () async {
+    final now = TimezoneService.instance.activeNow(settings);
+    if (now.weekday != DateTime.sunday && now.weekday != DateTime.monday) return null;
+    return buildWeeklyReview(
+      now: now,
+      tasks: await db.taskDao.getAllTasks(),
+      activeHabits: await db.habitDao.getAllActiveHabits(),
+      logs: await (db.select(db.habitLogs)..where((l) => l.isDeleted.equals(false))).get(),
+      toWallTime: (utc) => TimezoneService.instance.toActiveTime(utc, settings),
+    );
+  });
+});
+
+/// Which week's review was dismissed on this device (its Sunday, yyyy-MM-dd).
+final weeklyReviewDismissedProvider = StateNotifierProvider<WeeklyReviewDismissal, String?>((ref) => WeeklyReviewDismissal());
+
+class WeeklyReviewDismissal extends StateNotifier<String?> {
+  static const _key = 'weekly_review_dismissed_week';
+
+  WeeklyReviewDismissal() : super(null) {
+    SharedPreferences.getInstance().then((prefs) {
+      if (mounted) state = prefs.getString(_key);
+    });
+  }
+
+  static String keyFor(DateTime weekStart) => DateFormat('yyyy-MM-dd').format(weekStart);
+
+  Future<void> dismiss(DateTime weekStart) async {
+    state = keyFor(weekStart);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_key, state!);
+  }
+}
 
 // ── Smart Free Time & Suggestion ─────────────────────────────────────────────
 

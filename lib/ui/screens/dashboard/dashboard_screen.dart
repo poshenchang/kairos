@@ -2,6 +2,7 @@
 //
 // Main Dashboard: Hero Suggestion, Deadlines, Today's Timeline, Habits.
 
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -21,6 +22,7 @@ import 'package:kairos/ui/widgets/app_global_actions.dart';
 import 'package:kairos/ui/widgets/task_form_sheet.dart';
 import 'package:kairos/ui/widgets/habit_form_sheet.dart';
 import 'package:kairos/ui/widgets/quick_add_sheet.dart';
+import 'package:kairos/ui/widgets/undo_snackbar.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -75,6 +77,9 @@ class DashboardScreen extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // 0. LAST WEEK'S REVIEW (Sundays & Mondays, dismissible)
+              _buildWeeklyReview(context, ref),
+
               // 1. SMART SUGGESTION HERO CARD (Eliminates idle hesitation)
               _buildSuggestionHero(context, ref, suggestion),
 
@@ -170,16 +175,20 @@ class DashboardScreen extends ConsumerWidget {
             children: [
               Icon(badgeIcon, color: Colors.amberAccent, size: 20),
               const SizedBox(width: 8),
-              Text(
-                suggestion.badgeLabel ?? defaultBadgeLabel,
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.1,
+              Expanded(
+                child: Text(
+                  suggestion.badgeLabel ?? defaultBadgeLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.1,
+                  ),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               CategoryBadge(categorySlugOrName: suggestion.category, compact: true),
             ],
           ),
@@ -288,6 +297,99 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
+  Widget _buildWeeklyReview(BuildContext context, WidgetRef ref) {
+    final review = ref.watch(weeklyReviewProvider).value;
+    final dismissedWeek = ref.watch(weeklyReviewDismissedProvider);
+    if (review == null ||
+        dismissedWeek == WeeklyReviewDismissal.keyFor(review.weekStart) ||
+        (review.tasksCompleted == 0 && review.habitsTotal == 0 && review.overdueTasks.isEmpty)) {
+      return const SizedBox.shrink();
+    }
+
+    final theme = Theme.of(context);
+    final overdue = review.overdueTasks.length;
+    final parts = [
+      '${review.tasksCompleted} ${review.tasksCompleted == 1 ? 'task' : 'tasks'} done',
+      if (review.habitsTotal > 0) '${review.habitsOnTarget}/${review.habitsTotal} habits on target',
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 4, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.insights, size: 18, color: theme.colorScheme.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Last week · ${DateFormat('MMM d').format(review.weekStart)}–'
+                      '${DateFormat('MMM d').format(review.weekStart.add(const Duration(days: 6)))}',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    tooltip: 'Dismiss until next week',
+                    onPressed: () => ref.read(weeklyReviewDismissedProvider.notifier).dismiss(review.weekStart),
+                  ),
+                ],
+              ),
+              Text(parts.join(' · '), style: const TextStyle(fontSize: 14)),
+              if (overdue > 0) ...[
+                const SizedBox(height: 4),
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  children: [
+                    Text(
+                      '$overdue overdue',
+                      style: TextStyle(fontSize: 14, color: theme.colorScheme.error, fontWeight: FontWeight.w600),
+                    ),
+                    TextButton.icon(
+                      icon: const Icon(Icons.event_repeat, size: 18),
+                      label: const Text('Move to today'),
+                      onPressed: () => _moveOverdueToToday(context, ref, review.overdueTasks),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Moves [overdue] tasks to 23:59 today, with one UNDO for the whole batch.
+  Future<void> _moveOverdueToToday(BuildContext context, WidgetRef ref, List<Task> overdue) async {
+    final settings = ref.read(settingsNotifierProvider);
+    final now = TimezoneService.instance.activeNow(settings);
+    final endOfToday = TimezoneService.instance.fromActiveTime(DateTime(now.year, now.month, now.day, 23, 59), settings);
+    final dao = ref.read(taskDaoProvider);
+    for (final t in overdue) {
+      await dao.updateTask(t.toCompanion(true).copyWith(
+            dueDate: Value(endOfToday),
+            updatedAt: Value(DateTime.now().toUtc()),
+          ));
+    }
+    if (!context.mounted) return;
+    showUndoSnackBar(
+      context,
+      message: 'Moved ${overdue.length} ${overdue.length == 1 ? 'task' : 'tasks'} to today',
+      onUndo: () async {
+        for (final t in overdue) {
+          await dao.revertTask(t);
+        }
+      },
+    );
+  }
+
   Widget _buildDeadlinesSection(
     BuildContext context,
     WidgetRef ref,
@@ -374,12 +476,15 @@ class DashboardScreen extends ConsumerWidget {
                         decoration: task.isCompleted ? TextDecoration.lineThrough : null,
                       ),
                     ),
-                    subtitle: Row(
+                    subtitle: Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         CategoryBadge(categorySlugOrName: task.category, compact: true),
-                        const SizedBox(width: 8),
                         if (task.isRecurring)
                           const Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(Icons.repeat, size: 12, color: Colors.grey),
                               SizedBox(width: 2),
