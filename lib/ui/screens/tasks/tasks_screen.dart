@@ -13,11 +13,10 @@ import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/settings_service.dart';
 import 'package:kairos/services/timezone_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
-import 'package:kairos/ui/widgets/add_task_dialog.dart';
-import 'package:kairos/ui/widgets/edit_task_dialog.dart';
 import 'package:kairos/ui/widgets/app_global_actions.dart';
 import 'package:kairos/ui/widgets/category_badge.dart';
 import 'package:kairos/ui/widgets/undo_snackbar.dart';
+import 'package:kairos/ui/widgets/task_form_sheet.dart';
 
 class TasksScreen extends ConsumerStatefulWidget {
   const TasksScreen({super.key});
@@ -158,7 +157,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => AddTaskDialog.show(context),
+        onPressed: () => TaskFormSheet.show(context),
         icon: const Icon(Icons.add),
         label: const Text('Add Task'),
       ),
@@ -228,7 +227,7 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () => EditTaskDialog.show(context, task),
+        onTap: () => TaskFormSheet.show(context, task: task),
         child: Padding(
           padding: const EdgeInsets.all(12.0),
           child: Column(
@@ -327,7 +326,7 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
                       onSelected: (action) {
                         switch (action) {
                           case _TaskAction.edit:
-                            EditTaskDialog.show(context, task);
+                            TaskFormSheet.show(context, task: task);
                           case _TaskAction.delete:
                             _deleteTask();
                         }
@@ -355,7 +354,7 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
                     IconButton(
                       icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.blueGrey),
                       tooltip: 'Edit Task',
-                      onPressed: () => EditTaskDialog.show(context, task),
+                      onPressed: () => TaskFormSheet.show(context, task: task),
                     ),
                     IconButton(
                       icon: const Icon(Icons.delete_outline, size: 18, color: Colors.grey),

@@ -14,13 +14,12 @@ import 'package:kairos/services/settings_service.dart';
 import 'package:kairos/services/timezone_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/widgets/add_event_dialog.dart';
-import 'package:kairos/ui/widgets/add_task_dialog.dart';
 import 'package:kairos/ui/widgets/edit_event_dialog.dart';
-import 'package:kairos/ui/widgets/edit_task_dialog.dart';
-import 'package:kairos/ui/widgets/edit_habit_dialog.dart';
 import 'package:kairos/ui/widgets/category_badge.dart';
 import 'package:kairos/ui/widgets/log_habit_dialog.dart';
 import 'package:kairos/ui/widgets/app_global_actions.dart';
+import 'package:kairos/ui/widgets/task_form_sheet.dart';
+import 'package:kairos/ui/widgets/habit_form_sheet.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -267,7 +266,7 @@ class DashboardScreen extends ConsumerWidget {
                   } else if (suggestion.habit != null) {
                     LogHabitDialog.show(context, suggestion.habit!);
                   } else if (suggestion.task != null) {
-                    EditTaskDialog.show(context, suggestion.task!);
+                    TaskFormSheet.show(context, task: suggestion.task!);
                   } else {
                     context.go('/calendar');
                   }
@@ -314,7 +313,7 @@ class DashboardScreen extends ConsumerWidget {
             ),
             IconButton(
               icon: const Icon(Icons.add, size: 20),
-              onPressed: () => AddTaskDialog.show(context),
+              onPressed: () => TaskFormSheet.show(context),
             ),
           ],
         ),
@@ -393,7 +392,7 @@ class DashboardScreen extends ConsumerWidget {
                           ),
                       ],
                     ),
-                    onTap: () => EditTaskDialog.show(context, task),
+                    onTap: () => TaskFormSheet.show(context, task: task),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -415,7 +414,7 @@ class DashboardScreen extends ConsumerWidget {
                         IconButton(
                           icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.blueGrey),
                           tooltip: 'Edit Task',
-                          onPressed: () => EditTaskDialog.show(context, task),
+                          onPressed: () => TaskFormSheet.show(context, task: task),
                         ),
                       ],
                     ),
@@ -679,7 +678,7 @@ class DashboardScreen extends ConsumerWidget {
                             IconButton(
                               icon: const Icon(Icons.edit_outlined, color: Colors.blueGrey, size: 20),
                               tooltip: 'Edit Habit',
-                              onPressed: () => EditHabitDialog.show(context, habit),
+                              onPressed: () => HabitFormSheet.show(context, habit: habit),
                             ),
                             IconButton(
                               icon: const Icon(Icons.add_circle, color: Colors.green, size: 24),

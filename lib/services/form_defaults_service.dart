@@ -1,7 +1,7 @@
 // lib/services/form_defaults_service.dart
 //
 // Caches the last entered date/time/duration/category choices as defaults
-// for AddEventDialog, AddTaskDialog, and AddHabitDialog.
+// for AddEventDialog, TaskFormSheet, and HabitFormSheet.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

@@ -21,9 +21,9 @@ import 'package:kairos/services/timezone_service.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/screens/calendar/widgets/drag_schedule_item.dart';
 import 'package:kairos/ui/widgets/add_event_dialog.dart';
-import 'package:kairos/ui/widgets/add_habit_dialog.dart';
-import 'package:kairos/ui/widgets/add_task_dialog.dart';
 import 'package:kairos/ui/widgets/habit_schedule_dialog.dart';
+import 'package:kairos/ui/widgets/task_form_sheet.dart';
+import 'package:kairos/ui/widgets/habit_form_sheet.dart';
 
 class ScheduleSidebar extends ConsumerStatefulWidget {
   final DateTime currentWeekStart;
@@ -409,7 +409,7 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
                           title: 'Tasks & Deadlines',
                           icon: Icons.check_circle_outline,
                           count: tasks.length,
-                          onAdd: () => AddTaskDialog.show(context),
+                          onAdd: () => TaskFormSheet.show(context),
                         ),
                         if (taskItems.isEmpty)
                           _buildEmptyState('All tasks caught up!', 'Add a new deadline to get started')
@@ -449,7 +449,7 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
                         title: 'Active Habits',
                         icon: Icons.repeat,
                         count: habits.length,
-                        onAdd: () => AddHabitDialog.show(context),
+                        onAdd: () => HabitFormSheet.show(context),
                       ),
                       if (habits.isNotEmpty)
                         Padding(

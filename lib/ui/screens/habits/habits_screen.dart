@@ -10,13 +10,12 @@ import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/services/habit_schedule_service.dart';
-import 'package:kairos/ui/widgets/add_habit_dialog.dart';
-import 'package:kairos/ui/widgets/edit_habit_dialog.dart';
 import 'package:kairos/ui/widgets/app_global_actions.dart';
 import 'package:kairos/ui/widgets/category_badge.dart';
 import 'package:kairos/ui/widgets/habit_schedule_dialog.dart';
 import 'package:kairos/ui/widgets/log_habit_dialog.dart';
 import 'package:kairos/ui/widgets/undo_snackbar.dart';
+import 'package:kairos/ui/widgets/habit_form_sheet.dart';
 
 class HabitsScreen extends ConsumerWidget {
   const HabitsScreen({super.key});
@@ -61,7 +60,7 @@ class HabitsScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 16),
                   ElevatedButton.icon(
-                    onPressed: () => AddHabitDialog.show(context),
+                    onPressed: () => HabitFormSheet.show(context),
                     icon: const Icon(Icons.add),
                     label: const Text('Add First Habit'),
                   ),
@@ -82,7 +81,7 @@ class HabitsScreen extends ConsumerWidget {
         },
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => AddHabitDialog.show(context),
+        onPressed: () => HabitFormSheet.show(context),
         icon: const Icon(Icons.add),
         label: const Text('Add Habit'),
       ),
@@ -179,7 +178,7 @@ class _HabitCard extends ConsumerWidget {
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () => EditHabitDialog.show(context, habit),
+        onTap: () => HabitFormSheet.show(context, habit: habit),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 8, 16),
           child: Column(
@@ -205,7 +204,7 @@ class _HabitCard extends ConsumerWidget {
                           case _HabitAction.schedule:
                             HabitScheduleDialog.show(context, habit);
                           case _HabitAction.edit:
-                            EditHabitDialog.show(context, habit);
+                            HabitFormSheet.show(context, habit: habit);
                           case _HabitAction.delete:
                             _delete(context, ref);
                         }
@@ -263,7 +262,7 @@ class _HabitCard extends ConsumerWidget {
                     IconButton(
                       icon: const Icon(Icons.edit_outlined, size: 20, color: Colors.blueGrey),
                       tooltip: 'Edit Habit',
-                      onPressed: () => EditHabitDialog.show(context, habit),
+                      onPressed: () => HabitFormSheet.show(context, habit: habit),
                     ),
                     IconButton(
                       icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
