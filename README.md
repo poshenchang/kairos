@@ -38,11 +38,10 @@ Kairos is a time management app designed for students to eliminate idle hesitati
    - **Conflict Detection & Warnings**: Visual warnings prevent accidentally double-booking conflicting timetable slots
    - **Reminder Events & Notification Controls**: Non-intrusive time-only reminder events and configurable notification reminders ("at start" or custom offsets)
 
-6. **"What to Do Next" Hero Suggestion & Focus Mode**
+6. **"What to Do Next" Hero Suggestion**
    - Dashboard dynamically assesses current schedule state and free time remaining
    - Ongoing event awareness: shows active event progress, remaining minutes, and what follows next
    - Suggests highest-leverage uncompleted habits during open time (≥ 30 min)
-   - **Focus Timer (Pomodoro)**: 15m, 25m, or 50m timer with visual countdown to jump straight into deep work
 
 ---
 

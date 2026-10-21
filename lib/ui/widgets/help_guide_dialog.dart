@@ -110,10 +110,10 @@ class HelpGuideDialog extends StatelessWidget {
                     context: context,
                     icon: Icons.lightbulb,
                     iconColor: Colors.amberAccent,
-                    title: '5. Eliminating Idle Time & Focus Mode',
+                    title: '5. Eliminating Idle Time',
                     description:
                         '• Never wonder what to do next: The top hero card checks your free time and highlights the highest-priority task or habit session.\n'
-                        '• Tap "Start Focus Timer" to launch an instant 15m, 25m, or 50m Pomodoro timer with zero hesitation.',
+                        '• Tap "Open Task" or "Log Session" on the card to act on it immediately.',
                   ),
                 ],
               ),

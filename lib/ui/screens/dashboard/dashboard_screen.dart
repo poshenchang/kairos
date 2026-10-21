@@ -19,7 +19,6 @@ import 'package:kairos/ui/widgets/edit_event_dialog.dart';
 import 'package:kairos/ui/widgets/edit_task_dialog.dart';
 import 'package:kairos/ui/widgets/edit_habit_dialog.dart';
 import 'package:kairos/ui/widgets/category_badge.dart';
-import 'package:kairos/ui/widgets/focus_timer_dialog.dart';
 import 'package:kairos/ui/widgets/log_habit_dialog.dart';
 import 'package:kairos/ui/widgets/app_global_actions.dart';
 
@@ -139,11 +138,15 @@ class DashboardScreen extends ConsumerWidget {
         suggestion.actionLabel.contains('Calendar') ||
         suggestion.actionLabel.contains('Plan');
 
-    final primaryIcon = switch (suggestion.period) {
+    final primaryIcon = suggestion.habit != null
+        ? Icons.check_circle_outline
+        : suggestion.task != null && suggestion.hasFreeTime
+            ? Icons.assignment_outlined
+            : switch (suggestion.period) {
       SmartSuggestionPeriod.night => isCalendarAction ? Icons.calendar_month : Icons.play_arrow,
       SmartSuggestionPeriod.morning => isCalendarAction ? Icons.calendar_month : Icons.play_arrow,
       SmartSuggestionPeriod.daytime => suggestion.hasFreeTime ? Icons.play_arrow : Icons.calendar_today,
-    };
+              };
 
     return Container(
       width: double.infinity,
@@ -261,30 +264,15 @@ class DashboardScreen extends ConsumerWidget {
                 onPressed: () {
                   if (isCalendarAction || !suggestion.hasFreeTime) {
                     context.go('/calendar');
+                  } else if (suggestion.habit != null) {
+                    LogHabitDialog.show(context, suggestion.habit!);
+                  } else if (suggestion.task != null) {
+                    EditTaskDialog.show(context, suggestion.task!);
                   } else {
-                    FocusTimerDialog.show(
-                      context,
-                      title: suggestion.title,
-                      category: suggestion.category,
-                      defaultMinutes: 25,
-                    );
+                    context.go('/calendar');
                   }
                 },
               ),
-              if (suggestion.habit != null) ...[
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.check_circle_outline, color: Colors.white, size: 16),
-                  label: const Text('Log Session', style: TextStyle(color: Colors.white)),
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Colors.white54),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  ),
-                  onPressed: () {
-                    LogHabitDialog.show(context, suggestion.habit!);
-                  },
-                ),
-              ],
               if (!isCalendarAction)
                 OutlinedButton.icon(
                   icon: const Icon(Icons.calendar_month, color: Colors.white, size: 16),
@@ -588,18 +576,6 @@ class DashboardScreen extends ConsumerWidget {
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        IconButton(
-                          icon: const Icon(Icons.timer_outlined, size: 20),
-                          tooltip: 'Focus on this event',
-                          onPressed: () {
-                            FocusTimerDialog.show(
-                              context,
-                              title: event.title,
-                              category: event.category,
-                              defaultMinutes: 30,
-                            );
-                          },
-                        ),
                         IconButton(
                           icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.blueGrey),
                           tooltip: 'Edit Event',

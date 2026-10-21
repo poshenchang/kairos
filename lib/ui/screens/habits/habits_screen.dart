@@ -14,7 +14,6 @@ import 'package:kairos/ui/widgets/add_habit_dialog.dart';
 import 'package:kairos/ui/widgets/edit_habit_dialog.dart';
 import 'package:kairos/ui/widgets/app_global_actions.dart';
 import 'package:kairos/ui/widgets/category_badge.dart';
-import 'package:kairos/ui/widgets/focus_timer_dialog.dart';
 import 'package:kairos/ui/widgets/habit_schedule_dialog.dart';
 import 'package:kairos/ui/widgets/log_habit_dialog.dart';
 
@@ -139,18 +138,6 @@ class _HabitCard extends ConsumerWidget {
     final progressColor = isDoneForWeek ? Colors.green : (target == 7 ? Colors.purpleAccent : Colors.blueAccent);
     final defaultSlots = ref.watch(habitScheduleProvider)[habit.id] ?? [];
 
-    final focusButton = OutlinedButton.icon(
-      icon: const Icon(Icons.timer_outlined, size: 16),
-      label: const Text('Focus', style: TextStyle(fontSize: 12)),
-      onPressed: () {
-        FocusTimerDialog.show(
-          context,
-          title: habit.title,
-          category: habit.category,
-          defaultMinutes: habit.minSessionMinutes,
-        );
-      },
-    );
     final logButton = ElevatedButton.icon(
       icon: const Icon(Icons.check, size: 16),
       label: const Text('Log Session', style: TextStyle(fontSize: 12)),
@@ -365,24 +352,11 @@ class _HabitCard extends ConsumerWidget {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  // Phones: buttons split the full width; wider screens: right-aligned
+                  // Phones: full-width button; wider screens: right-aligned
                   if (isMobile)
-                    Row(
-                      children: [
-                        Expanded(child: focusButton),
-                        const SizedBox(width: 8),
-                        Expanded(child: logButton),
-                      ],
-                    )
+                    SizedBox(width: double.infinity, child: logButton)
                   else
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        focusButton,
-                        const SizedBox(width: 8),
-                        logButton,
-                      ],
-                    ),
+                    Align(alignment: Alignment.centerRight, child: logButton),
                 ],
               ),
             ),

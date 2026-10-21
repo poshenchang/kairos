@@ -2,7 +2,7 @@
 //
 // Tasks & Deadlines screen:
 // - Hierarchical subtasks under tasks (with checkboxes, progress bar, inline adder)
-// - Category filters, overdue alerts, completion toggle, focus timer
+// - Category filters, overdue alerts, completion toggle
 // - Consistent top-right AppGlobalActions
 
 import 'package:drift/drift.dart' show Value;
@@ -18,7 +18,6 @@ import 'package:kairos/ui/widgets/add_task_dialog.dart';
 import 'package:kairos/ui/widgets/edit_task_dialog.dart';
 import 'package:kairos/ui/widgets/app_global_actions.dart';
 import 'package:kairos/ui/widgets/category_badge.dart';
-import 'package:kairos/ui/widgets/focus_timer_dialog.dart';
 
 class TasksScreen extends ConsumerStatefulWidget {
   const TasksScreen({super.key});
@@ -302,11 +301,6 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
                     ],
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.timer_outlined, color: Colors.blueAccent),
-                  tooltip: 'Start Focus Timer (25m)',
-                  onPressed: _startFocus,
-                ),
                 // On phones, Edit/Delete collapse into an overflow menu to free up width for the title
                 if (isMobile)
                   PopupMenuButton<_TaskAction>(
@@ -497,15 +491,6 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
           ],
         ),
       ),
-    );
-  }
-
-  void _startFocus() {
-    FocusTimerDialog.show(
-      context,
-      title: widget.task.title,
-      category: widget.task.category,
-      defaultMinutes: 25,
     );
   }
 
