@@ -53,8 +53,8 @@ static void my_application_activate(GApplication* application) {
   }
 
   gtk_window_set_default_size(window, 1280, 720);
+  // Resolved from the icon theme (installed by create_desktop_shortcut.sh)
   gtk_window_set_default_icon_name("kairos");
-  gtk_window_set_icon_from_file(window, "/home/poshenchang/Documents/dev/kairos/assets/icon/app_icon.png", nullptr);
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(
