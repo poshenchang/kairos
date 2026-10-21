@@ -529,9 +529,6 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                     notificationService.scheduleEventNotification(savedEvent);
                   }
 
-                  ref.invalidate(selectedDateEventsProvider);
-                  ref.invalidate(todayEventsProvider);
-                  ref.invalidate(allEventsStreamProvider);
                   _refreshEvents();
 
                   if (context.mounted) {
@@ -562,9 +559,6 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                         onPressed: () async {
                           await eventDao.deleteEvent(newId);
                           await notificationService.cancelNotification(newId);
-                          ref.invalidate(selectedDateEventsProvider);
-                          ref.invalidate(todayEventsProvider);
-                          ref.invalidate(allEventsStreamProvider);
                           _refreshEvents();
                         },
                       ),
@@ -811,9 +805,6 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                   onPressed: () async {
                     Navigator.of(sheetContext).pop();
                     await EditEventDialog.show(context, event, occurrenceDate: activeStart);
-                    ref.invalidate(selectedDateEventsProvider);
-                    ref.invalidate(todayEventsProvider);
-                    ref.invalidate(allEventsStreamProvider);
                     _refreshEvents();
                   },
                 ),
@@ -824,12 +815,9 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                     Navigator.of(sheetContext).pop();
                     final container = ProviderScope.containerOf(context);
                     final dao = ref.read(eventDaoProvider);
-                    void refresh() {
+                    // The timetable reloads itself via its allEventsStreamProvider listener
+                    void pushToCloud() {
                       container.read(supabaseSyncServiceProvider.notifier).syncNow();
-                      container.invalidate(selectedDateEventsProvider);
-                      container.invalidate(todayEventsProvider);
-                      container.invalidate(allEventsStreamProvider);
-                      _refreshEvents();
                     }
 
                     // Use the timetable's context: the bottom sheet's is gone after pop()
@@ -838,11 +826,11 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                       message: 'Deleted "${event.title}"',
                       onUndo: () async {
                         await dao.restoreEvent(event.id);
-                        refresh();
+                        pushToCloud();
                       },
                     );
                     await dao.deleteEvent(event.id);
-                    refresh();
+                    pushToCloud();
                   },
                 ),
               ],
@@ -907,9 +895,6 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
 
                   if (confirm == true) {
                     await ref.read(eventRepositoryProvider).cancelRecurringOccurrence(event.id, activeStart);
-                    ref.invalidate(selectedDateEventsProvider);
-                    ref.invalidate(todayEventsProvider);
-                    ref.invalidate(allEventsStreamProvider);
                     _refreshEvents();
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(

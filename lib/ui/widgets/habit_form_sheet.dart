@@ -160,8 +160,6 @@ class _HabitFormSheetState extends ConsumerState<HabitFormSheet> {
           );
     }
 
-    ref.invalidate(allHabitsProvider);
-    ref.invalidate(activeHabitsProvider);
     ref.invalidate(weeklyHabitCompletionsProvider);
 
     if (mounted) Navigator.of(context).pop();

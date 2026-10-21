@@ -595,11 +595,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               onPressed: () async {
                 final container = ProviderScope.containerOf(context);
                 final dao = ref.read(eventDaoProvider);
-                void refresh() {
+                void pushToCloud() {
                   container.read(supabaseSyncServiceProvider.notifier).syncNow();
-                  container.invalidate(selectedDateEventsProvider);
-                  container.invalidate(todayEventsProvider);
-                  container.invalidate(allEventsStreamProvider);
                 }
 
                 showUndoSnackBar(
@@ -607,11 +604,11 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   message: 'Deleted "${event.title}"',
                   onUndo: () async {
                     await dao.restoreEvent(event.id);
-                    refresh();
+                    pushToCloud();
                   },
                 );
                 await dao.deleteEvent(event.id);
-                refresh();
+                pushToCloud();
               },
             ),
           ],

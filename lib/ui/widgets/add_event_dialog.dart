@@ -275,9 +275,6 @@ class _AddEventDialogState extends ConsumerState<AddEventDialog> {
       }
     }
 
-    ref.invalidate(selectedDateEventsProvider);
-    ref.invalidate(todayEventsProvider);
-    ref.invalidate(allEventsStreamProvider);
 
     if (mounted) Navigator.of(context).pop();
   }

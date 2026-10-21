@@ -189,8 +189,6 @@ class _TaskFormSheetState extends ConsumerState<TaskFormSheet> {
 
     await _saveSubtasks(taskDao, taskId);
 
-    ref.invalidate(dashboardTasksProvider);
-    ref.invalidate(incompleteTasksStreamProvider);
     if (mounted) Navigator.of(context).pop();
   }
 

@@ -871,9 +871,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 if (val) {
                                   await ref.read(eventRepositoryProvider).autoCancelRecurringEventsForActiveHolidays();
                                 }
-                                ref.invalidate(selectedDateEventsProvider);
-                                ref.invalidate(todayEventsProvider);
-                                ref.invalidate(allEventsStreamProvider);
                                 ref.read(supabaseSyncServiceProvider.notifier).syncNow();
                               },
                             ),
@@ -901,9 +898,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 );
                                 if (confirm == true) {
                                   await holidayDao.deleteHolidayGroup(groupName);
-                                  ref.invalidate(selectedDateEventsProvider);
-                                  ref.invalidate(todayEventsProvider);
-                                  ref.invalidate(allEventsStreamProvider);
                                   ref.read(supabaseSyncServiceProvider.notifier).syncNow();
                                 }
                               },
@@ -940,9 +934,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                         if (val) {
                                           await ref.read(eventRepositoryProvider).autoCancelRecurringEventsForActiveHolidays();
                                         }
-                                        ref.invalidate(selectedDateEventsProvider);
-                                        ref.invalidate(todayEventsProvider);
-                                        ref.invalidate(allEventsStreamProvider);
                                         ref.read(supabaseSyncServiceProvider.notifier).syncNow();
                                       },
                                     ),
@@ -955,9 +946,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                         _showEditHolidayDialog(context, holidayDao, h);
                                       } else if (action == 'delete') {
                                         await holidayDao.deleteHoliday(h.id);
-                                        ref.invalidate(selectedDateEventsProvider);
-                                        ref.invalidate(todayEventsProvider);
-                                        ref.invalidate(allEventsStreamProvider);
                                         ref.read(supabaseSyncServiceProvider.notifier).syncNow();
                                       }
                                     },
@@ -1103,9 +1091,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   );
                   await ref.read(eventRepositoryProvider).autoCancelRecurringEventsForActiveHolidays();
-                  ref.invalidate(selectedDateEventsProvider);
-                  ref.invalidate(todayEventsProvider);
-                  ref.invalidate(allEventsStreamProvider);
                   ref.read(supabaseSyncServiceProvider.notifier).syncNow();
                   if (dialogContext.mounted) {
                     Navigator.of(dialogContext).pop();
@@ -1221,9 +1206,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   );
                   await ref.read(eventRepositoryProvider).autoCancelRecurringEventsForActiveHolidays();
-                  ref.invalidate(selectedDateEventsProvider);
-                  ref.invalidate(todayEventsProvider);
-                  ref.invalidate(allEventsStreamProvider);
                   ref.read(supabaseSyncServiceProvider.notifier).syncNow();
                   if (dialogContext.mounted) {
                     Navigator.of(dialogContext).pop();
@@ -1498,10 +1480,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             if (confirm == true && context.mounted) {
                               try {
                                 await ref.read(supabaseSyncServiceProvider.notifier).resetLocalDatabaseAndPull();
-                                ref.invalidate(selectedDateEventsProvider);
-                                ref.invalidate(todayEventsProvider);
-                                ref.invalidate(allEventsStreamProvider);
-                                ref.invalidate(dashboardTasksProvider);
                                 if (context.mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(content: Text('Local database reset and refreshed cleanly from Supabase!')),
@@ -1823,11 +1801,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         await db.habitDao.deleteHabit(h.id);
                       }
 
-                      ref.invalidate(todayEventsProvider);
-                      ref.invalidate(selectedDateEventsProvider);
-                      ref.invalidate(dashboardTasksProvider);
-                      ref.invalidate(incompleteTasksStreamProvider);
-                      ref.invalidate(activeHabitsProvider);
                       ref.invalidate(weeklyHabitCompletionsProvider);
 
                       if (context.mounted) {
@@ -1900,7 +1873,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     for (final cat in defaults) {
                       await db.categoryDao.insertCategory(cat);
                     }
-                    ref.invalidate(allCategoriesProvider);
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('Default categories restored!')),

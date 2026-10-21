@@ -3,12 +3,54 @@
 // Application-level state providers for categories, events, tasks, habits,
 // and smart dashboard suggestions.
 
+import 'dart:async';
+
+import 'package:drift/drift.dart' show TableInfo, TableUpdateQuery;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/repositories/repository_providers.dart';
 import 'package:kairos/services/settings_service.dart';
 import 'package:kairos/services/timezone_service.dart';
+
+/// Emits [load]'s result now and again whenever any of [tables] changes.
+///
+/// For queries drift can't watch directly (e.g. recurrence expansion done in
+/// Dart). Bursts of writes, such as a sync, coalesce into one extra load, and
+/// new results replace old ones without passing through a loading state.
+Stream<T> _watchTables<T>(AppDatabase db, Iterable<TableInfo> tables, Future<T> Function() load) {
+  late final StreamController<T> controller;
+  StreamSubscription<void>? updates;
+  var running = false;
+  var dirty = false;
+
+  Future<void> run() async {
+    if (running) {
+      dirty = true;
+      return;
+    }
+    running = true;
+    do {
+      dirty = false;
+      try {
+        final value = await load();
+        if (!controller.isClosed) controller.add(value);
+      } catch (e, st) {
+        if (!controller.isClosed) controller.addError(e, st);
+      }
+    } while (dirty && !controller.isClosed);
+    running = false;
+  }
+
+  controller = StreamController<T>(
+    onListen: () {
+      run();
+      updates = db.tableUpdates(TableUpdateQuery.onAllTables(tables)).listen((_) => run());
+    },
+    onCancel: () => updates?.cancel(),
+  );
+  return controller.stream;
+}
 
 // ── Categories ──────────────────────────────────────────────────────────────
 
@@ -24,43 +66,37 @@ final allEventsStreamProvider = StreamProvider<List<Event>>((ref) {
   return dao.watchAllEvents();
 });
 
-final todayEventsProvider = FutureProvider<List<Event>>((ref) async {
+/// Live expanded events (recurrences resolved, holidays applied) for the
+/// [days] wall-clock days starting at [startWall].
+Stream<List<Event>> _watchEventsFor(Ref ref, DateTime startWall, int days) {
+  final db = ref.watch(appDatabaseProvider);
   final repo = ref.watch(eventRepositoryProvider);
   final settings = ref.read(settingsNotifierProvider);
-  final now = TimezoneService.instance.activeNow(settings);
-  final startWall = DateTime(now.year, now.month, now.day);
-  final endWall = startWall.add(const Duration(days: 1));
   final startUtc = TimezoneService.instance.fromActiveTime(startWall, settings);
-  final endUtc = TimezoneService.instance.fromActiveTime(endWall, settings);
-  return repo.getExpandedEventsInRange(startUtc, endUtc, settings);
+  final endUtc = TimezoneService.instance.fromActiveTime(startWall.add(Duration(days: days)), settings);
+  return _watchTables(db, [db.events, db.holidays], () => repo.getExpandedEventsInRange(startUtc, endUtc, settings));
+}
+
+final todayEventsProvider = StreamProvider<List<Event>>((ref) {
+  final now = TimezoneService.instance.activeNow(ref.read(settingsNotifierProvider));
+  return _watchEventsFor(ref, DateTime(now.year, now.month, now.day), 1);
 });
 
 final selectedDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
 
-final selectedDateEventsProvider = FutureProvider<List<Event>>((ref) async {
+final selectedDateEventsProvider = StreamProvider<List<Event>>((ref) {
   final date = ref.watch(selectedDateProvider);
-  final repo = ref.watch(eventRepositoryProvider);
-  final settings = ref.read(settingsNotifierProvider);
-  final startWall = DateTime(date.year, date.month, date.day);
-  final endWall = startWall.add(const Duration(days: 1));
-  final startUtc = TimezoneService.instance.fromActiveTime(startWall, settings);
-  final endUtc = TimezoneService.instance.fromActiveTime(endWall, settings);
-  return repo.getExpandedEventsInRange(startUtc, endUtc, settings);
+  return _watchEventsFor(ref, DateTime(date.year, date.month, date.day), 1);
 });
 
-final weekEventsProvider = FutureProvider.family<List<Event>, DateTime>((ref, weekStart) async {
-  final repo = ref.watch(eventRepositoryProvider);
-  final settings = ref.read(settingsNotifierProvider);
-  final startWall = DateTime(weekStart.year, weekStart.month, weekStart.day);
-  final endWall = startWall.add(const Duration(days: 7));
-  final startUtc = TimezoneService.instance.fromActiveTime(startWall, settings);
-  final endUtc = TimezoneService.instance.fromActiveTime(endWall, settings);
-  return repo.getExpandedEventsInRange(startUtc, endUtc, settings);
+final weekEventsProvider = StreamProvider.family<List<Event>, DateTime>((ref, weekStart) {
+  return _watchEventsFor(ref, DateTime(weekStart.year, weekStart.month, weekStart.day), 7);
 });
 
-final holidaysForDateProvider = FutureProvider.family<List<Holiday>, DateTime>((ref, date) async {
+final holidaysForDateProvider = StreamProvider.family<List<Holiday>, DateTime>((ref, date) {
+  final db = ref.watch(appDatabaseProvider);
   final dao = ref.watch(holidayDaoProvider);
-  return dao.getHolidaysForDate(date);
+  return _watchTables(db, [db.holidays], () => dao.getHolidaysForDate(date));
 });
 
 // ── Tasks ───────────────────────────────────────────────────────────────────
@@ -71,11 +107,10 @@ final incompleteTasksStreamProvider = StreamProvider<List<Task>>((ref) {
 });
 
 /// Returns incomplete tasks with recurring tasks collapsed to only their next occurrence.
-final dashboardTasksProvider = FutureProvider<List<Task>>((ref) async {
-  // Re-run when the raw tasks stream emits
-  ref.watch(incompleteTasksStreamProvider);
+final dashboardTasksProvider = StreamProvider<List<Task>>((ref) {
+  final db = ref.watch(appDatabaseProvider);
   final repo = ref.watch(taskRepositoryProvider);
-  return repo.getDashboardTasks();
+  return _watchTables(db, [db.tasks], repo.getDashboardTasks);
 });
 
 final subtasksForTaskProvider = StreamProvider.family<List<Subtask>, int>((ref, taskId) {

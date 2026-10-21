@@ -245,8 +245,6 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
                         await _completeTask();
                       } else {
                         await widget.tasksDao.markIncomplete(task.id);
-                        ref.invalidate(dashboardTasksProvider);
-                        ref.invalidate(incompleteTasksStreamProvider);
                       }
                     },
                   ),
@@ -557,37 +555,21 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
   }
 
   Future<void> _completeTask() async {
-    final container = ProviderScope.containerOf(context);
     final dao = widget.tasksDao;
     final original = widget.task;
-    void refresh() {
-      container.invalidate(dashboardTasksProvider);
-      container.invalidate(incompleteTasksStreamProvider);
-    }
-
     await ref.read(taskRepositoryProvider).completeTask(original.id);
-    refresh();
     if (!mounted) return;
     showUndoSnackBar(
       context,
       message: 'Completed "${original.title}"',
-      onUndo: () async {
-        await dao.revertTask(original);
-        refresh();
-      },
+      onUndo: () => dao.revertTask(original),
     );
   }
 
   Future<void> _deleteTask() async {
-    // This card leaves the tree once deleted, so undo goes through the container
-    final container = ProviderScope.containerOf(context);
+    // This card leaves the tree once deleted, so the undo closure must not use `ref`
     final dao = widget.tasksDao;
     final task = widget.task;
-    void refresh() {
-      container.invalidate(dashboardTasksProvider);
-      container.invalidate(incompleteTasksStreamProvider);
-    }
-
     final onRestored = widget.onRestored;
     showUndoSnackBar(
       context,
@@ -595,11 +577,9 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
       onUndo: () async {
         await dao.restoreTask(task.id);
         onRestored(task.id);
-        refresh();
       },
     );
     await dao.deleteTask(task.id);
-    refresh();
   }
 
   Future<void> _addSubtask() async {

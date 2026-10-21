@@ -117,30 +117,17 @@ class _HabitCard extends ConsumerWidget {
           updatedAt: Value(DateTime.now().toUtc()),
         );
     await ref.read(habitDaoProvider).updateHabit(updatedCompanion);
-    ref.invalidate(allHabitsProvider);
-    ref.invalidate(activeHabitsProvider);
   }
 
   Future<void> _delete(BuildContext context, WidgetRef ref) async {
-    // This card leaves the tree once deleted, so undo goes through the container
-    final container = ProviderScope.containerOf(context);
+    // This card leaves the tree once deleted, so the undo closure must not use `ref`
     final dao = ref.read(habitDaoProvider);
-    void refresh() {
-      container.invalidate(allHabitsProvider);
-      container.invalidate(activeHabitsProvider);
-      container.invalidate(weeklyHabitCompletionsProvider);
-    }
-
     showUndoSnackBar(
       context,
       message: 'Deleted "${habit.title}"',
-      onUndo: () async {
-        await dao.restoreHabit(habit.id);
-        refresh();
-      },
+      onUndo: () => dao.restoreHabit(habit.id),
     );
     await dao.deleteHabit(habit.id);
-    refresh();
   }
 
   @override

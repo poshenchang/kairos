@@ -364,9 +364,6 @@ class _EditEventDialogState extends ConsumerState<EditEventDialog> {
       await notifService.scheduleEventNotification(updatedEvent);
     }
 
-    ref.invalidate(selectedDateEventsProvider);
-    ref.invalidate(todayEventsProvider);
-    ref.invalidate(allEventsStreamProvider);
 
     if (mounted) Navigator.of(context).pop();
   }
@@ -503,9 +500,6 @@ class _EditEventDialogState extends ConsumerState<EditEventDialog> {
                               widget.event.id,
                               widget.occurrenceDate!,
                             );
-                            ref.invalidate(selectedDateEventsProvider);
-                            ref.invalidate(todayEventsProvider);
-                            ref.invalidate(allEventsStreamProvider);
                             if (context.mounted) {
                               Navigator.of(context).pop();
                               ScaffoldMessenger.of(context).showSnackBar(
@@ -549,9 +543,6 @@ class _EditEventDialogState extends ConsumerState<EditEventDialog> {
                             onDeleted: () async {
                               await ref.read(eventRepositoryProvider).restoreRecurringOccurrence(widget.event.id, dStr);
                               setState(() => _cancelledDates.remove(dStr));
-                              ref.invalidate(selectedDateEventsProvider);
-                              ref.invalidate(todayEventsProvider);
-                              ref.invalidate(allEventsStreamProvider);
                             },
                           );
                         }).toList(),

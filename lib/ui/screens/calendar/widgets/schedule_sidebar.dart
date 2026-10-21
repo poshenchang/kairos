@@ -1024,9 +1024,6 @@ class _ScheduleSidebarState extends ConsumerState<ScheduleSidebar> {
       existingEvents: allEvents,
       notificationService: notificationService,
     );
-    ref.invalidate(selectedDateEventsProvider);
-    ref.invalidate(todayEventsProvider);
-    ref.invalidate(allEventsStreamProvider);
     if (context.mounted) {
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(

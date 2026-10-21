@@ -504,9 +504,6 @@ class _AllEventsViewState extends ConsumerState<AllEventsView> {
                                   padding: const EdgeInsets.symmetric(horizontal: 4),
                                   onPressed: () async {
                                     await ref.read(eventRepositoryProvider).restoreRecurringOccurrence(event.id, dStr);
-                                    ref.invalidate(allEventsStreamProvider);
-                                    ref.invalidate(selectedDateEventsProvider);
-                                    ref.invalidate(todayEventsProvider);
                                     if (context.mounted) {
                                       ScaffoldMessenger.of(context).showSnackBar(
                                         SnackBar(
@@ -551,11 +548,8 @@ class _AllEventsViewState extends ConsumerState<AllEventsView> {
                 onPressed: () async {
                   final container = ProviderScope.containerOf(context);
                   final dao = ref.read(eventDaoProvider);
-                  void refresh() {
+                  void pushToCloud() {
                     container.read(supabaseSyncServiceProvider.notifier).syncNow();
-                    container.invalidate(allEventsStreamProvider);
-                    container.invalidate(selectedDateEventsProvider);
-                    container.invalidate(todayEventsProvider);
                   }
 
                   showUndoSnackBar(
@@ -563,11 +557,11 @@ class _AllEventsViewState extends ConsumerState<AllEventsView> {
                     message: 'Deleted "${event.title}"',
                     onUndo: () async {
                       await dao.restoreEvent(event.id);
-                      refresh();
+                      pushToCloud();
                     },
                   );
                   await dao.deleteEvent(event.id);
-                  refresh();
+                  pushToCloud();
                 },
               ),
             ],

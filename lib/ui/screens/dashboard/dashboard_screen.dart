@@ -64,9 +64,6 @@ class DashboardScreen extends ConsumerWidget {
             settings: settings,
             notificationService: notificationService,
           );
-          ref.invalidate(todayEventsProvider);
-          ref.invalidate(dashboardTasksProvider);
-          ref.invalidate(activeHabitsProvider);
           ref.invalidate(weeklyHabitCompletionsProvider);
           ref.invalidate(todayHabitCompletionsProvider);
         },
@@ -367,8 +364,6 @@ class DashboardScreen extends ConsumerWidget {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                       onChanged: (val) async {
                         await ref.read(taskRepositoryProvider).completeTask(task.id);
-                        ref.invalidate(dashboardTasksProvider);
-                        ref.invalidate(incompleteTasksStreamProvider);
                       },
                     ),
                     title: Text(
