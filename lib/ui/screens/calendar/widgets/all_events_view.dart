@@ -16,6 +16,7 @@ import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/widgets/add_event_dialog.dart';
 import 'package:kairos/ui/widgets/category_badge.dart';
 import 'package:kairos/ui/widgets/edit_event_dialog.dart';
+import 'package:kairos/ui/widgets/undo_snackbar.dart';
 
 class AllEventsView extends ConsumerStatefulWidget {
   const AllEventsView({super.key});
@@ -548,11 +549,25 @@ class _AllEventsViewState extends ConsumerState<AllEventsView> {
                 icon: const Icon(Icons.delete_outline, size: 18, color: Colors.grey),
                 tooltip: 'Delete Event',
                 onPressed: () async {
-                  await ref.read(eventDaoProvider).deleteEvent(event.id);
-                  ref.read(supabaseSyncServiceProvider.notifier).syncNow();
-                  ref.invalidate(allEventsStreamProvider);
-                  ref.invalidate(selectedDateEventsProvider);
-                  ref.invalidate(todayEventsProvider);
+                  final container = ProviderScope.containerOf(context);
+                  final dao = ref.read(eventDaoProvider);
+                  void refresh() {
+                    container.read(supabaseSyncServiceProvider.notifier).syncNow();
+                    container.invalidate(allEventsStreamProvider);
+                    container.invalidate(selectedDateEventsProvider);
+                    container.invalidate(todayEventsProvider);
+                  }
+
+                  showUndoSnackBar(
+                    context,
+                    message: 'Deleted "${event.title}"',
+                    onUndo: () async {
+                      await dao.restoreEvent(event.id);
+                      refresh();
+                    },
+                  );
+                  await dao.deleteEvent(event.id);
+                  refresh();
                 },
               ),
             ],

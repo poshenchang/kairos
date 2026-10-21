@@ -4,6 +4,7 @@
 
 import 'package:drift/drift.dart';
 import 'package:kairos/data/database/app_database.dart';
+import 'package:kairos/data/database/daos/restore_timestamp.dart';
 
 part 'habit_dao.g.dart';
 
@@ -176,6 +177,15 @@ class HabitDao extends DatabaseAccessor<AppDatabase> with _$HabitDaoMixin {
         isDeleted: const Value(true),
         updatedAt: Value(DateTime.now().toUtc()),
       ));
+
+  /// Reverses [deleteHabit] (undo). See [restoreTimestamp] for why the timestamp is bumped.
+  Future<int> restoreHabit(int id) => transaction(() async {
+        final row = await (select(habits)..where((h) => h.id.equals(id))).getSingle();
+        return (update(habits)..where((h) => h.id.equals(id))).write(HabitsCompanion(
+          isDeleted: const Value(false),
+          updatedAt: Value(restoreTimestamp(row.updatedAt)),
+        ));
+      });
 
   Future<int> logHabitCompletion(HabitLogsCompanion companion) =>
       into(habitLogs).insert(companion);

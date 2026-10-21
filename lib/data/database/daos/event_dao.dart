@@ -5,6 +5,7 @@
 import 'package:drift/drift.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/database/tables/events_table.dart';
+import 'package:kairos/data/database/daos/restore_timestamp.dart';
 
 part 'event_dao.g.dart';
 
@@ -113,6 +114,15 @@ class EventDao extends DatabaseAccessor<AppDatabase> with _$EventDaoMixin {
         isDeleted: const Value(true),
         updatedAt: Value(DateTime.now().toUtc()),
       ));
+
+  /// Reverses [deleteEvent] (undo). See [restoreTimestamp] for why the timestamp is bumped.
+  Future<int> restoreEvent(int id) => transaction(() async {
+        final row = await (select(events)..where((e) => e.id.equals(id))).getSingle();
+        return (update(events)..where((e) => e.id.equals(id))).write(EventsCompanion(
+          isDeleted: const Value(false),
+          updatedAt: Value(restoreTimestamp(row.updatedAt)),
+        ));
+      });
 
   /// Hard-delete all auto-scheduled events.
   /// Called by [SchedulerService] before inserting a fresh schedule.

@@ -22,6 +22,7 @@ import 'package:kairos/ui/widgets/add_event_dialog.dart';
 import 'package:kairos/ui/widgets/edit_event_dialog.dart';
 import 'package:kairos/ui/widgets/app_global_actions.dart';
 import 'package:kairos/ui/widgets/category_badge.dart';
+import 'package:kairos/ui/widgets/undo_snackbar.dart';
 
 class CalendarScreen extends ConsumerStatefulWidget {
   const CalendarScreen({super.key});
@@ -592,11 +593,25 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
               tooltip: 'Delete Event',
               onPressed: () async {
-                await ref.read(eventDaoProvider).deleteEvent(event.id);
-                ref.read(supabaseSyncServiceProvider.notifier).syncNow();
-                ref.invalidate(selectedDateEventsProvider);
-                ref.invalidate(todayEventsProvider);
-                ref.invalidate(allEventsStreamProvider);
+                final container = ProviderScope.containerOf(context);
+                final dao = ref.read(eventDaoProvider);
+                void refresh() {
+                  container.read(supabaseSyncServiceProvider.notifier).syncNow();
+                  container.invalidate(selectedDateEventsProvider);
+                  container.invalidate(todayEventsProvider);
+                  container.invalidate(allEventsStreamProvider);
+                }
+
+                showUndoSnackBar(
+                  context,
+                  message: 'Deleted "${event.title}"',
+                  onUndo: () async {
+                    await dao.restoreEvent(event.id);
+                    refresh();
+                  },
+                );
+                await dao.deleteEvent(event.id);
+                refresh();
               },
             ),
           ],

@@ -16,6 +16,7 @@ import 'package:kairos/ui/widgets/app_global_actions.dart';
 import 'package:kairos/ui/widgets/category_badge.dart';
 import 'package:kairos/ui/widgets/habit_schedule_dialog.dart';
 import 'package:kairos/ui/widgets/log_habit_dialog.dart';
+import 'package:kairos/ui/widgets/undo_snackbar.dart';
 
 class HabitsScreen extends ConsumerWidget {
   const HabitsScreen({super.key});
@@ -121,11 +122,26 @@ class _HabitCard extends ConsumerWidget {
     ref.invalidate(activeHabitsProvider);
   }
 
-  Future<void> _delete(WidgetRef ref) async {
-    await ref.read(habitDaoProvider).deleteHabit(habit.id);
-    ref.invalidate(allHabitsProvider);
-    ref.invalidate(activeHabitsProvider);
-    ref.invalidate(weeklyHabitCompletionsProvider);
+  Future<void> _delete(BuildContext context, WidgetRef ref) async {
+    // This card leaves the tree once deleted, so undo goes through the container
+    final container = ProviderScope.containerOf(context);
+    final dao = ref.read(habitDaoProvider);
+    void refresh() {
+      container.invalidate(allHabitsProvider);
+      container.invalidate(activeHabitsProvider);
+      container.invalidate(weeklyHabitCompletionsProvider);
+    }
+
+    showUndoSnackBar(
+      context,
+      message: 'Deleted "${habit.title}"',
+      onUndo: () async {
+        await dao.restoreHabit(habit.id);
+        refresh();
+      },
+    );
+    await dao.deleteHabit(habit.id);
+    refresh();
   }
 
   @override
@@ -188,7 +204,7 @@ class _HabitCard extends ConsumerWidget {
                         case _HabitAction.edit:
                           EditHabitDialog.show(context, habit);
                         case _HabitAction.delete:
-                          _delete(ref);
+                          _delete(context, ref);
                       }
                     },
                     itemBuilder: (context) => [
@@ -249,7 +265,7 @@ class _HabitCard extends ConsumerWidget {
                   IconButton(
                     icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
                     tooltip: 'Delete Habit',
-                    onPressed: () => _delete(ref),
+                    onPressed: () => _delete(context, ref),
                   ),
                 ],
               ],

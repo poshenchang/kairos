@@ -20,6 +20,7 @@ import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/screens/calendar/widgets/drag_schedule_item.dart';
 import 'package:kairos/ui/widgets/add_event_dialog.dart';
 import 'package:kairos/ui/widgets/edit_event_dialog.dart';
+import 'package:kairos/ui/widgets/undo_snackbar.dart';
 
 class TimetableView extends ConsumerStatefulWidget {
   final DateTime anchorDate;
@@ -821,12 +822,27 @@ class _TimetableViewState extends ConsumerState<TimetableView> {
                   tooltip: 'Delete Event',
                   onPressed: () async {
                     Navigator.of(sheetContext).pop();
-                    await ref.read(eventDaoProvider).deleteEvent(event.id);
-                    ref.read(supabaseSyncServiceProvider.notifier).syncNow();
-                    ref.invalidate(selectedDateEventsProvider);
-                    ref.invalidate(todayEventsProvider);
-                    ref.invalidate(allEventsStreamProvider);
-                    _refreshEvents();
+                    final container = ProviderScope.containerOf(context);
+                    final dao = ref.read(eventDaoProvider);
+                    void refresh() {
+                      container.read(supabaseSyncServiceProvider.notifier).syncNow();
+                      container.invalidate(selectedDateEventsProvider);
+                      container.invalidate(todayEventsProvider);
+                      container.invalidate(allEventsStreamProvider);
+                      _refreshEvents();
+                    }
+
+                    // Use the timetable's context: the bottom sheet's is gone after pop()
+                    showUndoSnackBar(
+                      context,
+                      message: 'Deleted "${event.title}"',
+                      onUndo: () async {
+                        await dao.restoreEvent(event.id);
+                        refresh();
+                      },
+                    );
+                    await dao.deleteEvent(event.id);
+                    refresh();
                   },
                 ),
               ],

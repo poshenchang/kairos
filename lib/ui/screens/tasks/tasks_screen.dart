@@ -18,6 +18,7 @@ import 'package:kairos/ui/widgets/add_task_dialog.dart';
 import 'package:kairos/ui/widgets/edit_task_dialog.dart';
 import 'package:kairos/ui/widgets/app_global_actions.dart';
 import 'package:kairos/ui/widgets/category_badge.dart';
+import 'package:kairos/ui/widgets/undo_snackbar.dart';
 
 class TasksScreen extends ConsumerStatefulWidget {
   const TasksScreen({super.key});
@@ -495,9 +496,25 @@ class _TaskCardWithSubtasksState extends ConsumerState<_TaskCardWithSubtasks> {
   }
 
   Future<void> _deleteTask() async {
-    await widget.tasksDao.deleteTask(widget.task.id);
-    ref.invalidate(dashboardTasksProvider);
-    ref.invalidate(incompleteTasksStreamProvider);
+    // This card leaves the tree once deleted, so undo goes through the container
+    final container = ProviderScope.containerOf(context);
+    final dao = widget.tasksDao;
+    final task = widget.task;
+    void refresh() {
+      container.invalidate(dashboardTasksProvider);
+      container.invalidate(incompleteTasksStreamProvider);
+    }
+
+    showUndoSnackBar(
+      context,
+      message: 'Deleted "${task.title}"',
+      onUndo: () async {
+        await dao.restoreTask(task.id);
+        refresh();
+      },
+    );
+    await dao.deleteTask(task.id);
+    refresh();
   }
 
   Future<void> _addSubtask() async {

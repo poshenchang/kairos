@@ -6,6 +6,7 @@ import 'package:drift/drift.dart';
 import 'package:kairos/data/database/app_database.dart';
 import 'package:kairos/data/database/tables/tasks_table.dart';
 import 'package:kairos/data/database/tables/subtasks_table.dart';
+import 'package:kairos/data/database/daos/restore_timestamp.dart';
 
 part 'task_dao.g.dart';
 
@@ -93,6 +94,15 @@ class TaskDao extends DatabaseAccessor<AppDatabase> with _$TaskDaoMixin {
         isDeleted: const Value(true),
         updatedAt: Value(DateTime.now().toUtc()),
       ));
+
+  /// Reverses [deleteTask] (undo). See [restoreTimestamp] for why the timestamp is bumped.
+  Future<int> restoreTask(int id) => transaction(() async {
+        final row = await (select(tasks)..where((t) => t.id.equals(id))).getSingle();
+        return (update(tasks)..where((t) => t.id.equals(id))).write(TasksCompanion(
+          isDeleted: const Value(false),
+          updatedAt: Value(restoreTimestamp(row.updatedAt)),
+        ));
+      });
 
   // ── Subtask Queries & Mutations ───────────────────────────────────────────
 
