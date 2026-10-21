@@ -1,12 +1,25 @@
 // lib/services/platform_notification/notification_bridge_web.dart
+//
+// Calls the notification helpers defined in web/index.html. Uses
+// dart:js_interop so it compiles for both the JS and WebAssembly web builds.
 
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:js' as js;
+import 'dart:js_interop';
+
+@JS('kairosShowNotification')
+external JSBoolean? _showNotification(JSString title, JSString body);
+
+@JS('kairosRequestPermission')
+external JSPromise<JSString>? _requestPermission();
+
+@JS('kairosGetPermission')
+external JSString? _getPermission();
+
+@JS('kairosHardReload')
+external JSPromise<JSAny?>? _hardReload();
 
 Future<bool> showPlatformNotification({required String title, required String body}) async {
   try {
-    final result = js.context.callMethod('kairosShowNotification', [title, body]);
-    return result == true;
+    return _showNotification(title.toJS, body.toJS)?.toDart ?? false;
   } catch (_) {
     return false;
   }
@@ -14,19 +27,16 @@ Future<bool> showPlatformNotification({required String title, required String bo
 
 Future<String> requestPlatformNotificationPermission() async {
   try {
-    final promise = js.context.callMethod('kairosRequestPermission');
-    if (promise != null) {
-      // Notification.requestPermission() in browsers returns a Promise or uses a callback
-      return promise.toString();
-    }
+    // Notification.requestPermission() resolves to "granted" | "denied" | "default"
+    final result = await _requestPermission()?.toDart;
+    if (result != null) return result.toDart;
   } catch (_) {}
   return 'denied';
 }
 
 String getPlatformNotificationPermission() {
   try {
-    final status = js.context.callMethod('kairosGetPermission');
-    return status?.toString() ?? 'default';
+    return _getPermission()?.toDart ?? 'default';
   } catch (_) {
     return 'unsupported';
   }
@@ -34,7 +44,6 @@ String getPlatformNotificationPermission() {
 
 Future<void> hardReloadBrowser() async {
   try {
-    js.context.callMethod('kairosHardReload');
+    await _hardReload()?.toDart;
   } catch (_) {}
 }
-
