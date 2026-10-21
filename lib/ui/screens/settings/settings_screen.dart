@@ -26,6 +26,7 @@ import 'package:kairos/ui/providers/app_providers.dart';
 import 'package:kairos/ui/theme/app_theme.dart';
 import 'package:kairos/ui/theme/theme_provider.dart';
 import 'package:kairos/ui/widgets/app_global_actions.dart';
+import 'package:kairos/ui/widgets/calendar_import_card.dart';
 import 'package:kairos/ui/widgets/help_guide_dialog.dart';
 
 const _kSupabaseSqlSetupScript = '''
@@ -180,6 +181,7 @@ enum _SettingsSection {
   notifications('Notifications & Calendar', 'Alerts, habit suggestions, default calendar view', Icons.notifications_active_outlined),
   timezone('Timezone', 'Auto-detect or pin a fixed timezone', Icons.schedule_outlined),
   holidays('Holidays & Breaks', 'Days that pause classes and routines', Icons.beach_access_outlined),
+  import_('Import Calendar', 'Add classes and events from an .ics file or link', Icons.file_download_outlined),
   sync('Cloud Sync', 'Supabase connection and sync status', Icons.cloud_sync_outlined),
   data('Data Management', 'Clear events, tasks, or categories', Icons.folder_delete_outlined),
   about('About & Help', 'Version info and student guide', Icons.info_outline);
@@ -285,6 +287,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _SettingsSection.notifications => [_buildNotificationsAndPreferencesCard(context, ref, settings)],
       _SettingsSection.timezone => [_buildTimezoneCard(context, ref, settings)],
       _SettingsSection.holidays => [_buildHolidaysCard(context, ref, ref.watch(holidayDaoProvider))],
+      _SettingsSection.import_ => [const CalendarImportCard()],
       _SettingsSection.sync => [_buildSupabaseSyncCard(context)],
       _SettingsSection.data => [_buildDataManagementCard(context, ref)],
       _SettingsSection.about => [_buildAboutCard(context)],

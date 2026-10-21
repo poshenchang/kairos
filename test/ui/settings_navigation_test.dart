@@ -49,6 +49,20 @@ void main() {
     expect(find.text('Cloud Sync'), findsOneWidget);
   });
 
+  testWidgets('phone: the import section renders without overflow', (tester) async {
+    await pumpAt(tester, const Size(375, 812));
+    await tester.tap(find.text('Import Calendar'));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Choose .ics file'), findsOneWidget);
+    expect(find.text('Fetch'), findsOneWidget);
+
+    // The card watches a drift stream; unmount so its cleanup timer fires
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 1));
+  });
+
   testWidgets('wide: list and first section side by side', (tester) async {
     await pumpAt(tester, const Size(1280, 800));
 
